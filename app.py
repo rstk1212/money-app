@@ -17,19 +17,15 @@ if "app_password" in st.secrets:
     if password != st.secrets["app_password"]:
         st.stop()
 
-# AI設定 (エラー対策・完全版)
+# AI設定 (確実なモデル名に修正)
 model = None
 if "gemini" in st.secrets:
     try:
         genai.configure(api_key=st.secrets["gemini"]["api_key"])
-        # 1. まず標準のFlashモデルを試す
+        # "-latest" を外した正式名称を使用
         model = genai.GenerativeModel('gemini-1.5-flash')
-    except:
-        try:
-            # 2. ダメならProモデルを試す
-            model = genai.GenerativeModel('gemini-pro')
-        except:
-            st.warning("AIモデルの読み込みに失敗しました")
+    except Exception as e:
+        st.error(f"AI設定エラー: {e}")
 
 # --- CSS ---
 st.markdown("""
@@ -239,12 +235,12 @@ if df is not None and not df.empty:
                     fig_score = px.line(df_j_year, x='Month', y='Score', markers=True, range_y=[0, 10])
                     st.plotly_chart(fig_score, use_container_width=True)
                     
-                    # 3. AI総括
+                    # AI総括
                     st.markdown("##### 🤖 AI ジャーナリング総括")
                     if st.button("この1年の変化をAI分析"):
                         if model:
                             try:
-                                with st.spinner("AI分析中..."):
+                                with st.spinner("分析中..."):
                                     journal_text = ""
                                     for _, row in df_j_year.iterrows():
                                         journal_text += f"【{row['Month']}】満足度:{row['Score']}\n{row['Comment']}\n\n"
@@ -256,8 +252,9 @@ if df is not None and not df.empty:
                         else:
                             st.error("AI機能が無効です")
 
-            # 4. カテゴリ内訳と表
             st.markdown("---")
+            
+            # 3. カテゴリ内訳(円グラフ) と 月平均(表) ※グラフ削除し表のみへ変更
             c1, c2 = st.columns([1, 1])
             with c1:
                 st.markdown("##### 📊 カテゴリ構成")
@@ -267,6 +264,7 @@ if df is not None and not df.empty:
                 st.plotly_chart(fig_pie, use_container_width=True)
             
             with c2:
+                # 【修正】ランキンググラフを削除し、表を目立つ位置に配置
                 st.markdown("##### 📋 年間支出と月平均")
                 active_m = df_y_exp['月'].nunique() or 1
                 p_data['月平均'] = p_data['AbsAmount'] / active_m
@@ -311,12 +309,12 @@ if df is not None and not df.empty:
             
             st.info(f"📝 **今月の振り返り**\n\n{comment_text}")
 
-            # --- AI診断 ---
+            # --- AI診断 (エラー対策済み) ---
             st.markdown("##### 🤖 AI診断")
             if st.button("診断する"):
                 if model:
                     try:
-                        with st.spinner("AI分析中..."):
+                        with st.spinner("分析中..."):
                             top_cat = t_exp.groupby('大項目')['AbsAmount'].sum().sort_values(ascending=False).head(5)
                             top_str = ", ".join([f"{k}:{v:,.0f}" for k,v in top_cat.items()])
                             prompt = f"あなたはFPです。家計診断をしてください。\n年月: {sy}年{sm}月, 収入: {v_inc}, 支出: {v_exp}\nトップ支出: {top_str}"
@@ -327,7 +325,7 @@ if df is not None and not df.empty:
                 else:
                     st.error("AI機能が無効です")
 
-            # 支出比較表 (グラフ削除・表に変更)
+            # 【修正】グラフ削除・比較表へ変更
             st.markdown("##### 📊 支出分析 (今月 vs 年平均)")
             if not t_exp.empty:
                 month_cat = t_exp.groupby('大項目')['AbsAmount'].sum().reset_index()
@@ -341,7 +339,7 @@ if df is not None and not df.empty:
                 merged['Diff'] = merged['ThisMonth'] - merged['Average']
                 merged = merged.sort_values('ThisMonth', ascending=False)
                 
-                # 表示用DF
+                # 表示用DF作成
                 disp_comp = pd.DataFrame()
                 disp_comp['カテゴリ'] = merged['Category']
                 disp_comp['今月'] = merged['ThisMonth'].apply(lambda x: f"¥{x:,.0f}")
