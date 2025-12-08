@@ -17,19 +17,19 @@ if "app_password" in st.secrets:
     if password != st.secrets["app_password"]:
         st.stop()
 
-# AI設定 (エラー対策強化版)
+# AI設定 (エラー対策・完全版)
 model = None
 if "gemini" in st.secrets:
     try:
         genai.configure(api_key=st.secrets["gemini"]["api_key"])
-        # まず最新のFlashモデルを試す
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
-    except Exception:
+        # 1. まず標準のFlashモデルを試す
+        model = genai.GenerativeModel('gemini-1.5-flash')
+    except:
         try:
-            # ダメなら安定版Proを試す
+            # 2. ダメならProモデルを試す
             model = genai.GenerativeModel('gemini-pro')
         except:
-            st.warning("AI機能が利用できません（モデル初期化エラー）")
+            st.warning("AIモデルの読み込みに失敗しました")
 
 # --- CSS ---
 st.markdown("""
@@ -64,7 +64,7 @@ st.markdown("""
         border-radius: 8px;
         margin-top: 10px;
         font-size: 0.95rem;
-        white-space: pre-wrap; /* 改行を反映 */
+        white-space: pre-wrap;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -244,7 +244,7 @@ if df is not None and not df.empty:
                     if st.button("この1年の変化をAI分析"):
                         if model:
                             try:
-                                with st.spinner("分析中..."):
+                                with st.spinner("AI分析中..."):
                                     journal_text = ""
                                     for _, row in df_j_year.iterrows():
                                         journal_text += f"【{row['Month']}】満足度:{row['Score']}\n{row['Comment']}\n\n"
@@ -256,7 +256,7 @@ if df is not None and not df.empty:
                         else:
                             st.error("AI機能が無効です")
 
-            # 4. カテゴリ内訳と表 (グラフ削除・表を上へ)
+            # 4. カテゴリ内訳と表
             st.markdown("---")
             c1, c2 = st.columns([1, 1])
             with c1:
@@ -267,7 +267,6 @@ if df is not None and not df.empty:
                 st.plotly_chart(fig_pie, use_container_width=True)
             
             with c2:
-                # 【修正】グラフ削除・表のみ表示
                 st.markdown("##### 📋 年間支出と月平均")
                 active_m = df_y_exp['月'].nunique() or 1
                 p_data['月平均'] = p_data['AbsAmount'] / active_m
@@ -317,7 +316,7 @@ if df is not None and not df.empty:
             if st.button("診断する"):
                 if model:
                     try:
-                        with st.spinner("分析中..."):
+                        with st.spinner("AI分析中..."):
                             top_cat = t_exp.groupby('大項目')['AbsAmount'].sum().sort_values(ascending=False).head(5)
                             top_str = ", ".join([f"{k}:{v:,.0f}" for k,v in top_cat.items()])
                             prompt = f"あなたはFPです。家計診断をしてください。\n年月: {sy}年{sm}月, 収入: {v_inc}, 支出: {v_exp}\nトップ支出: {top_str}"
@@ -328,7 +327,7 @@ if df is not None and not df.empty:
                 else:
                     st.error("AI機能が無効です")
 
-            # 【修正】グラフ削除・比較表を作成
+            # 支出比較表 (グラフ削除・表に変更)
             st.markdown("##### 📊 支出分析 (今月 vs 年平均)")
             if not t_exp.empty:
                 month_cat = t_exp.groupby('大項目')['AbsAmount'].sum().reset_index()
@@ -342,16 +341,14 @@ if df is not None and not df.empty:
                 merged['Diff'] = merged['ThisMonth'] - merged['Average']
                 merged = merged.sort_values('ThisMonth', ascending=False)
                 
-                # 表示用DF作成
+                # 表示用DF
                 disp_comp = pd.DataFrame()
                 disp_comp['カテゴリ'] = merged['Category']
                 disp_comp['今月'] = merged['ThisMonth'].apply(lambda x: f"¥{x:,.0f}")
                 disp_comp['年平均'] = merged['Average'].apply(lambda x: f"¥{x:,.0f}")
                 
-                # 差額（プラスなら赤、マイナスなら青などの装飾はできないため、記号で表現）
                 def format_diff(x):
-                    if x > 0: return f"+¥{x:,.0f} 🔺" # 使いすぎ
-                    else: return f"¥{x:,.0f} 📉" # 抑えられた
+                    return f"+¥{x:,.0f} 🔺" if x > 0 else f"¥{x:,.0f} 📉"
                 
                 disp_comp['平均との差'] = merged['Diff'].apply(format_diff)
                 
