@@ -8,9 +8,9 @@ from datetime import datetime
 import google.generativeai as genai
 
 # ==========================================
-# 1. 基本設定・AI初期化
+# 1. 基本設定
 # ==========================================
-st.set_page_config(page_title="Financial Well-being", layout="wide", page_icon="🤖")
+st.set_page_config(page_title="Financial Well-being", layout="wide", page_icon="💰")
 
 # パスワード保護
 if "app_password" in st.secrets:
@@ -18,14 +18,16 @@ if "app_password" in st.secrets:
     if password != st.secrets["app_password"]:
         st.stop()
 
-# Geminiの設定
+# AI設定 (エラー回避のため安全に初期化)
+model = None
 if "gemini" in st.secrets:
-    genai.configure(api_key=st.secrets["gemini"]["api_key"])
-    model = genai.GenerativeModel('gemini-1.5-flash')
-else:
-    st.error("SecretsにGemini APIキーが設定されていません")
+    try:
+        genai.configure(api_key=st.secrets["gemini"]["api_key"])
+        model = genai.GenerativeModel('gemini-1.5-flash')
+    except Exception as e:
+        st.warning(f"AI機能の準備中にエラーが発生しました: {e}")
 
-# --- CSS (スマホ最適化) ---
+# --- CSS (スマホ最適化 & デザイン復元) ---
 st.markdown("""
 <style>
     html, body { font-size: 16px; }
@@ -51,13 +53,13 @@ st.markdown("""
         margin-bottom: 10px;
         font-weight: 700;
     }
-    /* AIコメントエリアの装飾 */
     .ai-box {
         background-color: #f0f8ff;
-        border-left: 5px solid #4ca2cd;
+        border: 1px solid #b3e5fc;
         padding: 15px;
-        border-radius: 5px;
+        border-radius: 8px;
         margin-top: 10px;
+        font-size: 0.95rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -171,14 +173,18 @@ if st.sidebar.button("資産保存"):
     month_str = f"{input_year}-{input_month:02d}"
     cols = ["Month", "Bank", "Securities", "iDeCo", "Other", "Total"]
     df_assets = load_data_from_sheet("assets", cols)
+    
+    # 既存データの処理（エラー回避）
     if not df_assets.empty:
         df_assets['Month'] = df_assets['Month'].astype(str)
         df_assets = df_assets[df_assets['Month'] != month_str]
+    
     total_val = val_bank + val_sec + val_ideco + val_other
     new_row = pd.DataFrame({
         "Month": [month_str], "Bank": [val_bank], "Securities": [val_sec],
         "iDeCo": [val_ideco], "Other": [val_other], "Total": [total_val]
     })
+    
     df_assets = pd.concat([df_assets, new_row], ignore_index=True).sort_values('Month')
     save_data_to_sheet(df_assets, "assets")
     st.sidebar.success("保存完了")
@@ -197,7 +203,7 @@ if df is not None and not df.empty:
 
     tab_year, tab_month, tab_journal, tab_asset = st.tabs(["📅 年間", "🗓 月別", "📝 振り返り", "📈 資産"])
 
-    # --- Tab 1: 年間 (AI総括付き) ---
+    # --- Tab 1: 年間 ---
     with tab_year:
         st.subheader(f"📅 年間サマリー")
         selected_year = st.selectbox("対象年", sorted(df['年'].unique(), reverse=True), key="y_main")
@@ -206,7 +212,7 @@ if df is not None and not df.empty:
         df_y_inc = df_income[df_income['年'] == selected_year]
         
         if not df_y_exp.empty:
-            # グラフ表示（省略せず以前と同じ）
+            # 1. 収支グラフ
             m_inc = df_y_inc.groupby('月')['金額_数値'].sum().reset_index()
             m_inc.columns = ['月', '金額']
             m_inc['種別'] = '収入'
@@ -214,49 +220,75 @@ if df is not None and not df.empty:
             m_exp.columns = ['月', '金額']
             m_exp['種別'] = '支出'
             df_bal = pd.concat([m_inc, m_exp])
+            
             fig = px.bar(df_bal, x='月', y='金額', color='種別', barmode='group',
                          color_discrete_map={'収入': '#66c2a5', '支出': '#fc8d62'})
             st.plotly_chart(fig, use_container_width=True)
             
-            # 満足度の推移グラフ
+            # 2. 満足度推移 (復活)
             st.markdown("##### 😊 満足度の推移")
             cols_j = ["Month", "Comment", "Score"]
             df_j = load_data_from_sheet("journal", cols_j)
             if not df_j.empty:
                 df_j['Month'] = df_j['Month'].astype(str)
-                # 選択した年のデータだけ抽出 (YYYY-MM で前方一致)
+                df_j['Score'] = pd.to_numeric(df_j['Score'], errors='coerce') # 数値化
                 df_j_year = df_j[df_j['Month'].str.startswith(str(selected_year))].copy()
                 if not df_j_year.empty:
                     df_j_year = df_j_year.sort_values('Month')
-                    fig_score = px.line(df_j_year, x='Month', y='Score', markers=True, range_y=[0, 10], title=f"{selected_year}年の満足度変化")
+                    fig_score = px.line(df_j_year, x='Month', y='Score', markers=True, range_y=[0, 10])
                     st.plotly_chart(fig_score, use_container_width=True)
                     
-                    # --- AI 年間総括機能 ---
-                    st.markdown("---")
-                    st.subheader("🤖 AIによる年間振り返り総括")
-                    if st.button("この1年の変化をAIに分析させる"):
-                        with st.spinner("AIがあなたのジャーナルを分析中..."):
-                            # ジャーナルデータをテキスト化
-                            journal_text = ""
-                            for index, row in df_j_year.iterrows():
-                                journal_text += f"【{row['Month']}】満足度:{row['Score']}/10\nコメント: {row['Comment']}\n\n"
-                            
-                            prompt = f"""
-                            あなたは心理カウンセラー兼ライフコーチです。
-                            以下の1年間の家計簿の振り返りコメント（ジャーナル）を読み、このユーザーの意識の変化、価値観の変遷、成長した点を分析してください。
-                            ポジティブなトーンで、箇条書きと総括コメントでまとめてください。
-                            
-                            データ:
-                            {journal_text}
-                            """
-                            response = model.generate_content(prompt)
-                            st.markdown(f'<div class="ai-box">{response.text}</div>', unsafe_allow_html=True)
+                    # 3. AI 総括 (エラーハンドリング付き)
+                    st.markdown("##### 🤖 AI ジャーナリング総括")
+                    if st.button("この1年の変化をAI分析"):
+                        if model:
+                            try:
+                                with st.spinner("分析中..."):
+                                    journal_text = ""
+                                    for _, row in df_j_year.iterrows():
+                                        journal_text += f"【{row['Month']}】満足度:{row['Score']}\n{row['Comment']}\n\n"
+                                    
+                                    prompt = f"以下の家計簿振り返りを読み、ユーザーの1年間の価値観の変化や成長を要約し、ポジティブにフィードバックしてください。\n\n{journal_text}"
+                                    response = model.generate_content(prompt)
+                                    st.markdown(f'<div class="ai-box">{response.text}</div>', unsafe_allow_html=True)
+                            except Exception as e:
+                                st.error(f"AIエラー: {e}")
+                        else:
+                            st.error("AIモデルが設定されていません")
                 else:
                     st.info("この年の振り返りデータがありません")
 
-    # --- Tab 2: 月別 (AI診断付き) ---
+            # 4. カテゴリ内訳・ランキング・平均 (復活)
+            st.markdown("---")
+            c1, c2 = st.columns([1, 1])
+            with c1:
+                st.markdown("##### 📊 カテゴリ構成")
+                p_data = df_y_exp.groupby('大項目')['AbsAmount'].sum().reset_index().sort_values('AbsAmount', ascending=False)
+                fig_pie = px.pie(p_data, values='AbsAmount', names='大項目', hole=0.5, 
+                                 color_discrete_sequence=px.colors.qualitative.Pastel)
+                st.plotly_chart(fig_pie, use_container_width=True)
+            
+            with c2:
+                st.markdown("##### 🏆 支出ランキング & 月平均")
+                active_m = df_y_exp['月'].nunique() or 1
+                p_data['月平均'] = p_data['AbsAmount'] / active_m
+                
+                # 横棒グラフ
+                fig_rank = px.bar(p_data.head(10), x='月平均', y='大項目', orientation='h', text_auto='.2s')
+                fig_rank.update_layout(yaxis=dict(autorange="reversed"))
+                st.plotly_chart(fig_rank, use_container_width=True)
+                
+                # テーブル
+                bench_disp = pd.DataFrame()
+                bench_disp['カテゴリ'] = p_data['大項目']
+                bench_disp['年間合計'] = p_data['AbsAmount'].apply(lambda x: f"¥{x:,.0f}")
+                bench_disp['月平均'] = p_data['月平均'].apply(lambda x: f"¥{x:,.0f}")
+                st.dataframe(bench_disp, use_container_width=True, hide_index=True)
+
+    # --- Tab 2: 月別 ---
     with tab_month:
         st.subheader("🗓 月次詳細")
+        
         sy = st.selectbox("年", sorted(df['年'].unique(), reverse=True), key="my")
         df_y = df_expense[df_expense['年'] == sy]
         sm = st.selectbox("月", sorted(df_y['月'].unique()) if not df_y.empty else [1], key="mm")
@@ -267,68 +299,66 @@ if df is not None and not df.empty:
             
             v_inc = t_inc['金額_数値'].sum()
             v_exp = t_exp['AbsAmount'].sum()
+            
+            # KPI
             k1, k2, k3 = st.columns(3)
             k1.metric("収入", f"¥{v_inc:,.0f}")
             k2.metric("支出", f"¥{v_exp:,.0f}")
             k3.metric("収支", f"¥{(v_inc - v_exp):,.0f}")
             
-            st.markdown("---")
-            
-            # --- AI FP診断機能 ---
-            st.markdown("##### 🤖 AI FPによる月次診断")
-            if st.button("この月の家計を辛口診断する"):
-                with st.spinner("AI FPがデータを分析中..."):
-                    # 分析用データの作成
-                    top_cats = t_exp.groupby('大項目')['AbsAmount'].sum().sort_values(ascending=False).head(5)
-                    top_cats_str = "\n".join([f"- {idx}: ¥{val:,.0f}" for idx, val in top_cats.items()])
-                    
-                    prompt = f"""
-                    あなたは超優秀で少し辛口なファイナンシャルプランナーです。
-                    以下の家計データを分析し、ユーザーに対してフィードバックを行ってください。
-                    
-                    【データ】
-                    対象: {sy}年{sm}月
-                    収入: {v_inc}円
-                    支出: {v_exp}円
-                    収支: {v_inc - v_exp}円
-                    
-                    支出トップ5カテゴリ:
-                    {top_cats_str}
-                    
-                    【指示】
-                    ・支出のバランスや使いすぎについて鋭く指摘してください。
-                    ・良い点（黒字化など）があればしっかり褒めてください。
-                    ・次月に向けた具体的なアクションプランを1つ提案してください。
-                    ・口調は丁寧ですが、なあなあにはせず、プロとして断言してください。
-                    """
-                    response = model.generate_content(prompt)
-                    st.markdown(f'<div class="ai-box">{response.text}</div>', unsafe_allow_html=True)
-
-            # 振り返りコメント表示
+            # --- 振り返りコメント (復活) ---
             cols_j = ["Month", "Comment", "Score"]
             df_j = load_data_from_sheet("journal", cols_j)
             target_str = f"{sy}-{sm:02d}"
+            
+            comment_text = "（記録なし）"
             if not df_j.empty:
                 df_j['Month'] = df_j['Month'].astype(str)
                 row = df_j[df_j['Month'] == target_str]
                 if not row.empty:
-                    st.info(f"**あなたの振り返り (満足度: {row.iloc[-1]['Score']}/10)**\n\n{row.iloc[-1]['Comment']}")
+                    comment_text = f"**満足度: {row.iloc[-1]['Score']}/10**\n\n{row.iloc[-1]['Comment']}"
+            
+            st.info(f"📝 **今月の振り返り**\n\n{comment_text}")
 
-            # 支出ランキング vs 年平均 (グラフ)
-            st.markdown("##### 📊 支出ランキング vs 年平均")
+            # --- AI診断 (修正済み) ---
+            st.markdown("##### 🤖 AI診断")
+            if st.button("診断する"):
+                if model:
+                    try:
+                        with st.spinner("分析中..."):
+                            # データ準備
+                            top_cat = t_exp.groupby('大項目')['AbsAmount'].sum().sort_values(ascending=False).head(5)
+                            top_str = ", ".join([f"{k}:{v:,.0f}" for k,v in top_cat.items()])
+                            
+                            prompt = f"""
+                            あなたは辛口なファイナンシャルプランナーです。以下の家計データを分析し、改善点と良い点を指摘してください。
+                            年月: {sy}年{sm}月, 収入: {v_inc}, 支出: {v_exp}
+                            トップ支出: {top_str}
+                            """
+                            response = model.generate_content(prompt)
+                            st.markdown(f'<div class="ai-box">{response.text}</div>', unsafe_allow_html=True)
+                    except Exception as e:
+                        st.error(f"AIエラー: {e}")
+                else:
+                    st.error("AI機能が無効です")
+
+            # グラフ: 今月 vs 平均
+            st.markdown("##### 📊 支出ランキング (vs 年平均)")
             if not t_exp.empty:
                 month_cat = t_exp.groupby('大項目')['AbsAmount'].sum().reset_index()
                 month_cat.columns = ['Category', 'ThisMonth']
+                
                 year_cat = df_y.groupby('大項目')['AbsAmount'].sum().reset_index()
                 active_m = df_y['月'].nunique() or 1
                 year_cat['Average'] = year_cat['AbsAmount'] / active_m
+                
                 merged = pd.merge(month_cat, year_cat[['大項目', 'Average']], left_on='Category', right_on='大項目', how='left')
                 merged = merged.sort_values('ThisMonth', ascending=False)
                 
                 fig_comp = go.Figure()
                 fig_comp.add_trace(go.Bar(y=merged['Category'], x=merged['ThisMonth'], name='今月', orientation='h', marker_color='#2E8B57'))
                 fig_comp.add_trace(go.Bar(y=merged['Category'], x=merged['Average'], name='年平均', orientation='h', marker_color='#B0BEC5', width=0.4))
-                fig_comp.update_layout(barmode='group', yaxis=dict(autorange="reversed"), margin=dict(l=0, r=0, t=30, b=0), height=400+(len(merged)*20), legend=dict(orientation="h", y=1.02, x=1))
+                fig_comp.update_layout(barmode='group', yaxis=dict(autorange="reversed"), margin=dict(l=0, r=0, t=30, b=0), height=400+(len(merged)*30), legend=dict(orientation="h", y=1.02, x=1))
                 st.plotly_chart(fig_comp, use_container_width=True)
             
             # 明細
@@ -342,6 +372,9 @@ if df is not None and not df.empty:
     # --- Tab 3: 振り返り ---
     with tab_journal:
         st.subheader("📝 振り返り入力")
+        cols_j = ["Month", "Comment", "Score"]
+        df_journal = load_data_from_sheet("journal", cols_j)
+        
         with st.form("journal_form"):
             tm = st.text_input("対象月 (YYYY-MM)", value=datetime.today().strftime('%Y-%m'))
             sc = st.slider("満足度", 1, 10, 5)
@@ -349,9 +382,12 @@ if df is not None and not df.empty:
             if st.form_submit_button("保存"):
                 if get_worksheet("journal"):
                     new_j = pd.DataFrame({"Month": [tm], "Comment": [cm], "Score": [sc]})
-                    df_j = pd.concat([load_data_from_sheet("journal", cols_j), new_j], ignore_index=True)
+                    df_j = pd.concat([df_journal, new_j], ignore_index=True)
                     save_data_to_sheet(df_j, "journal")
                     st.success("保存完了")
+        
+        if not df_journal.empty:
+            st.dataframe(df_journal, use_container_width=True, hide_index=True)
 
     # --- Tab 4: 資産推移 ---
     with tab_asset:
@@ -360,16 +396,20 @@ if df is not None and not df.empty:
         df_assets = load_data_from_sheet("assets", cols_a)
         
         if not df_assets.empty:
-            for c in cols_a[1:]:
-                df_assets[c] = df_assets[c].astype(str).str.replace(',', '').apply(pd.to_numeric, errors='coerce').fillna(0)
+            # 安全に数値化
+            for col in cols_a[1:]:
+                df_assets[col] = df_assets[col].astype(str).str.replace(',', '').apply(pd.to_numeric, errors='coerce').fillna(0)
+            
             latest = df_assets.iloc[-1]['Total']
             st.metric("総資産", f"¥{latest:,.0f}")
+            
             fig = px.area(df_assets, x='Month', y=['Bank','Securities','iDeCo','Other'])
             fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig, use_container_width=True)
+            
             disp = df_assets.copy()
-            for c in cols_a[1:]:
-                disp[c] = disp[c].apply(lambda x: f"¥{x:,.0f}")
+            for col in cols_a[1:]:
+                disp[col] = disp[col].apply(lambda x: f"¥{x:,.0f}")
             st.dataframe(disp, hide_index=True)
         else:
             st.info("サイドバーから資産を入力してください")
