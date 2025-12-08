@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
@@ -18,16 +17,21 @@ if "app_password" in st.secrets:
     if password != st.secrets["app_password"]:
         st.stop()
 
-# AI設定 (エラー回避のため安全に初期化)
+# AI設定 (エラー対策強化版)
 model = None
 if "gemini" in st.secrets:
     try:
         genai.configure(api_key=st.secrets["gemini"]["api_key"])
-        model = genai.GenerativeModel('gemini-1.5-flash')
-    except Exception as e:
-        st.warning(f"AI機能の準備中にエラーが発生しました: {e}")
+        # まず最新のFlashモデルを試す
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+    except Exception:
+        try:
+            # ダメなら安定版Proを試す
+            model = genai.GenerativeModel('gemini-pro')
+        except:
+            st.warning("AI機能が利用できません（モデル初期化エラー）")
 
-# --- CSS (スマホ最適化 & デザイン復元) ---
+# --- CSS ---
 st.markdown("""
 <style>
     html, body { font-size: 16px; }
@@ -60,6 +64,7 @@ st.markdown("""
         border-radius: 8px;
         margin-top: 10px;
         font-size: 0.95rem;
+        white-space: pre-wrap; /* 改行を反映 */
     }
 </style>
 """, unsafe_allow_html=True)
@@ -173,18 +178,14 @@ if st.sidebar.button("資産保存"):
     month_str = f"{input_year}-{input_month:02d}"
     cols = ["Month", "Bank", "Securities", "iDeCo", "Other", "Total"]
     df_assets = load_data_from_sheet("assets", cols)
-    
-    # 既存データの処理（エラー回避）
     if not df_assets.empty:
         df_assets['Month'] = df_assets['Month'].astype(str)
         df_assets = df_assets[df_assets['Month'] != month_str]
-    
     total_val = val_bank + val_sec + val_ideco + val_other
     new_row = pd.DataFrame({
         "Month": [month_str], "Bank": [val_bank], "Securities": [val_sec],
         "iDeCo": [val_ideco], "Other": [val_other], "Total": [total_val]
     })
-    
     df_assets = pd.concat([df_assets, new_row], ignore_index=True).sort_values('Month')
     save_data_to_sheet(df_assets, "assets")
     st.sidebar.success("保存完了")
@@ -225,20 +226,20 @@ if df is not None and not df.empty:
                          color_discrete_map={'収入': '#66c2a5', '支出': '#fc8d62'})
             st.plotly_chart(fig, use_container_width=True)
             
-            # 2. 満足度推移 (復活)
+            # 2. 満足度推移
             st.markdown("##### 😊 満足度の推移")
             cols_j = ["Month", "Comment", "Score"]
             df_j = load_data_from_sheet("journal", cols_j)
             if not df_j.empty:
                 df_j['Month'] = df_j['Month'].astype(str)
-                df_j['Score'] = pd.to_numeric(df_j['Score'], errors='coerce') # 数値化
+                df_j['Score'] = pd.to_numeric(df_j['Score'], errors='coerce')
                 df_j_year = df_j[df_j['Month'].str.startswith(str(selected_year))].copy()
                 if not df_j_year.empty:
                     df_j_year = df_j_year.sort_values('Month')
                     fig_score = px.line(df_j_year, x='Month', y='Score', markers=True, range_y=[0, 10])
                     st.plotly_chart(fig_score, use_container_width=True)
                     
-                    # 3. AI 総括 (エラーハンドリング付き)
+                    # 3. AI総括
                     st.markdown("##### 🤖 AI ジャーナリング総括")
                     if st.button("この1年の変化をAI分析"):
                         if model:
@@ -247,18 +248,15 @@ if df is not None and not df.empty:
                                     journal_text = ""
                                     for _, row in df_j_year.iterrows():
                                         journal_text += f"【{row['Month']}】満足度:{row['Score']}\n{row['Comment']}\n\n"
-                                    
-                                    prompt = f"以下の家計簿振り返りを読み、ユーザーの1年間の価値観の変化や成長を要約し、ポジティブにフィードバックしてください。\n\n{journal_text}"
+                                    prompt = f"以下の家計簿振り返りを読み、1年間の価値観の変化や成長を要約してください。\n\n{journal_text}"
                                     response = model.generate_content(prompt)
                                     st.markdown(f'<div class="ai-box">{response.text}</div>', unsafe_allow_html=True)
                             except Exception as e:
                                 st.error(f"AIエラー: {e}")
                         else:
-                            st.error("AIモデルが設定されていません")
-                else:
-                    st.info("この年の振り返りデータがありません")
+                            st.error("AI機能が無効です")
 
-            # 4. カテゴリ内訳・ランキング・平均 (復活)
+            # 4. カテゴリ内訳と表 (グラフ削除・表を上へ)
             st.markdown("---")
             c1, c2 = st.columns([1, 1])
             with c1:
@@ -269,16 +267,11 @@ if df is not None and not df.empty:
                 st.plotly_chart(fig_pie, use_container_width=True)
             
             with c2:
-                st.markdown("##### 🏆 支出ランキング & 月平均")
+                # 【修正】グラフ削除・表のみ表示
+                st.markdown("##### 📋 年間支出と月平均")
                 active_m = df_y_exp['月'].nunique() or 1
                 p_data['月平均'] = p_data['AbsAmount'] / active_m
                 
-                # 横棒グラフ
-                fig_rank = px.bar(p_data.head(10), x='月平均', y='大項目', orientation='h', text_auto='.2s')
-                fig_rank.update_layout(yaxis=dict(autorange="reversed"))
-                st.plotly_chart(fig_rank, use_container_width=True)
-                
-                # テーブル
                 bench_disp = pd.DataFrame()
                 bench_disp['カテゴリ'] = p_data['大項目']
                 bench_disp['年間合計'] = p_data['AbsAmount'].apply(lambda x: f"¥{x:,.0f}")
@@ -300,13 +293,12 @@ if df is not None and not df.empty:
             v_inc = t_inc['金額_数値'].sum()
             v_exp = t_exp['AbsAmount'].sum()
             
-            # KPI
             k1, k2, k3 = st.columns(3)
             k1.metric("収入", f"¥{v_inc:,.0f}")
             k2.metric("支出", f"¥{v_exp:,.0f}")
             k3.metric("収支", f"¥{(v_inc - v_exp):,.0f}")
             
-            # --- 振り返りコメント (復活) ---
+            # --- 振り返りコメント ---
             cols_j = ["Month", "Comment", "Score"]
             df_j = load_data_from_sheet("journal", cols_j)
             target_str = f"{sy}-{sm:02d}"
@@ -320,21 +312,15 @@ if df is not None and not df.empty:
             
             st.info(f"📝 **今月の振り返り**\n\n{comment_text}")
 
-            # --- AI診断 (修正済み) ---
+            # --- AI診断 ---
             st.markdown("##### 🤖 AI診断")
             if st.button("診断する"):
                 if model:
                     try:
                         with st.spinner("分析中..."):
-                            # データ準備
                             top_cat = t_exp.groupby('大項目')['AbsAmount'].sum().sort_values(ascending=False).head(5)
                             top_str = ", ".join([f"{k}:{v:,.0f}" for k,v in top_cat.items()])
-                            
-                            prompt = f"""
-                            あなたは辛口なファイナンシャルプランナーです。以下の家計データを分析し、改善点と良い点を指摘してください。
-                            年月: {sy}年{sm}月, 収入: {v_inc}, 支出: {v_exp}
-                            トップ支出: {top_str}
-                            """
+                            prompt = f"あなたはFPです。家計診断をしてください。\n年月: {sy}年{sm}月, 収入: {v_inc}, 支出: {v_exp}\nトップ支出: {top_str}"
                             response = model.generate_content(prompt)
                             st.markdown(f'<div class="ai-box">{response.text}</div>', unsafe_allow_html=True)
                     except Exception as e:
@@ -342,8 +328,8 @@ if df is not None and not df.empty:
                 else:
                     st.error("AI機能が無効です")
 
-            # グラフ: 今月 vs 平均
-            st.markdown("##### 📊 支出ランキング (vs 年平均)")
+            # 【修正】グラフ削除・比較表を作成
+            st.markdown("##### 📊 支出分析 (今月 vs 年平均)")
             if not t_exp.empty:
                 month_cat = t_exp.groupby('大項目')['AbsAmount'].sum().reset_index()
                 month_cat.columns = ['Category', 'ThisMonth']
@@ -353,13 +339,23 @@ if df is not None and not df.empty:
                 year_cat['Average'] = year_cat['AbsAmount'] / active_m
                 
                 merged = pd.merge(month_cat, year_cat[['大項目', 'Average']], left_on='Category', right_on='大項目', how='left')
+                merged['Diff'] = merged['ThisMonth'] - merged['Average']
                 merged = merged.sort_values('ThisMonth', ascending=False)
                 
-                fig_comp = go.Figure()
-                fig_comp.add_trace(go.Bar(y=merged['Category'], x=merged['ThisMonth'], name='今月', orientation='h', marker_color='#2E8B57'))
-                fig_comp.add_trace(go.Bar(y=merged['Category'], x=merged['Average'], name='年平均', orientation='h', marker_color='#B0BEC5', width=0.4))
-                fig_comp.update_layout(barmode='group', yaxis=dict(autorange="reversed"), margin=dict(l=0, r=0, t=30, b=0), height=400+(len(merged)*30), legend=dict(orientation="h", y=1.02, x=1))
-                st.plotly_chart(fig_comp, use_container_width=True)
+                # 表示用DF作成
+                disp_comp = pd.DataFrame()
+                disp_comp['カテゴリ'] = merged['Category']
+                disp_comp['今月'] = merged['ThisMonth'].apply(lambda x: f"¥{x:,.0f}")
+                disp_comp['年平均'] = merged['Average'].apply(lambda x: f"¥{x:,.0f}")
+                
+                # 差額（プラスなら赤、マイナスなら青などの装飾はできないため、記号で表現）
+                def format_diff(x):
+                    if x > 0: return f"+¥{x:,.0f} 🔺" # 使いすぎ
+                    else: return f"¥{x:,.0f} 📉" # 抑えられた
+                
+                disp_comp['平均との差'] = merged['Diff'].apply(format_diff)
+                
+                st.dataframe(disp_comp, use_container_width=True, hide_index=True)
             
             # 明細
             st.markdown("##### 📋 支出明細")
@@ -382,7 +378,7 @@ if df is not None and not df.empty:
             if st.form_submit_button("保存"):
                 if get_worksheet("journal"):
                     new_j = pd.DataFrame({"Month": [tm], "Comment": [cm], "Score": [sc]})
-                    df_j = pd.concat([df_journal, new_j], ignore_index=True)
+                    df_j = pd.concat([load_data_from_sheet("journal", cols_j), new_j], ignore_index=True)
                     save_data_to_sheet(df_j, "journal")
                     st.success("保存完了")
         
@@ -396,9 +392,8 @@ if df is not None and not df.empty:
         df_assets = load_data_from_sheet("assets", cols_a)
         
         if not df_assets.empty:
-            # 安全に数値化
-            for col in cols_a[1:]:
-                df_assets[col] = df_assets[col].astype(str).str.replace(',', '').apply(pd.to_numeric, errors='coerce').fillna(0)
+            for c in cols_a[1:]:
+                df_assets[c] = df_assets[c].astype(str).str.replace(',', '').apply(pd.to_numeric, errors='coerce').fillna(0)
             
             latest = df_assets.iloc[-1]['Total']
             st.metric("総資産", f"¥{latest:,.0f}")
@@ -408,8 +403,8 @@ if df is not None and not df.empty:
             st.plotly_chart(fig, use_container_width=True)
             
             disp = df_assets.copy()
-            for col in cols_a[1:]:
-                disp[col] = disp[col].apply(lambda x: f"¥{x:,.0f}")
+            for c in cols_a[1:]:
+                disp[c] = disp[c].apply(lambda x: f"¥{x:,.0f}")
             st.dataframe(disp, hide_index=True)
         else:
             st.info("サイドバーから資産を入力してください")
