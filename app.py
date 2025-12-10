@@ -16,7 +16,7 @@ if "app_password" in st.secrets:
     if password != st.secrets["app_password"]:
         st.stop()
 
-# --- CSS (文字色修正・スマホ最適化) ---
+# --- CSS (スマホ最適化のみ残し、色は自動) ---
 st.markdown("""
 <style>
     /* 全体のフォントと横揺れ防止 */
@@ -25,7 +25,7 @@ st.markdown("""
         overflow-x: hidden;
     }
     
-    /* コンテンツエリアの余白調整 */
+    /* コンテンツエリアの余白調整（スマホで見やすく） */
     .block-container {
         padding-top: 1.5rem;
         padding-bottom: 5rem;
@@ -34,41 +34,23 @@ st.markdown("""
         max-width: 100%;
     }
 
-    /* カードデザイン (文字色を強制的に黒に指定) */
-    div[data-testid="stMetric"], 
-    div[data-testid="stDataFrame"], 
-    div[data-testid="stExpander"], 
-    div[data-testid="stForm"] {
-        background-color: #ffffff !important; /* 背景は白 */
-        border-radius: 12px;
-        border: 1px solid #e0e0e0;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        padding: 15px;
-        margin-bottom: 15px;
-        color: #333333 !important; /* 文字色は黒系 */
-    }
-
-    /* メトリック（KPI）の数字とラベルの色を強制指定 */
-    div[data-testid="stMetricLabel"] p {
-        color: #666666 !important; /* ラベルはグレー */
-    }
-    div[data-testid="stMetricValue"] div {
-        color: #333333 !important; /* 数値は濃い黒 */
-    }
-
-    /* ヘッダー装飾 */
+    /* ヘッダー装飾（色はテーマに合わせるため指定しない） */
     h3, h5 {
         border-left: 4px solid #2E8B57;
         padding-left: 10px;
         margin-top: 25px;
         margin-bottom: 10px;
         font-weight: 700;
-        color: #333333 !important;
     }
     
     /* グラフのレスポンシブ対応 */
     .js-plotly-plot {
         width: 100% !important;
+    }
+    
+    /* 入力フォームの微調整 */
+    .stTextInput > div > div > input {
+        font-size: 16px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -118,7 +100,6 @@ def save_data_to_sheet(df, sheet_name):
         worksheet.update([save_df.columns.values.tolist()] + save_df.values.tolist())
 
 def clean_currency(x):
-    """金額の文字列を数値に変換する安全装置"""
     if isinstance(x, str):
         clean_str = x.replace(',', '').replace('¥', '').replace('\\', '').replace('▲', '-')
         try: return float(clean_str)
@@ -129,7 +110,6 @@ def clean_currency(x):
 # 2. サイドバー
 # ==========================================
 st.sidebar.title("メニュー")
-
 st.sidebar.caption("データ管理")
 
 # データの読み込み
@@ -139,7 +119,6 @@ with st.spinner("読込中..."):
 
 if not df_cloud.empty:
     df = df_cloud
-    # 数値化処理
     df['金額_数値'] = df['金額_数値'].astype(str).apply(clean_currency)
     df['AbsAmount'] = df['AbsAmount'].astype(str).apply(clean_currency)
     df['日付'] = pd.to_datetime(df['日付'])
@@ -221,10 +200,10 @@ if df is not None and not df.empty:
             total_exp = df_y_exp['AbsAmount'].sum()
             total_bal = total_inc - total_exp
             
-            k_y1, k_y2, k_y3 = st.columns(3)
-            k_y1.metric("年間収入", f"¥{total_inc:,.0f}")
-            k_y2.metric("年間支出", f"¥{total_exp:,.0f}")
-            k_y3.metric("年間収支", f"¥{total_bal:,.0f}")
+            k1, k2, k3 = st.columns(3)
+            k1.metric("年間収入", f"¥{total_inc:,.0f}")
+            k2.metric("年間支出", f"¥{total_exp:,.0f}")
+            k3.metric("年間収支", f"¥{total_bal:,.0f}")
             
             st.markdown("---")
 
@@ -241,7 +220,7 @@ if df is not None and not df.empty:
                          color_discrete_map={'収入': '#66c2a5', '支出': '#fc8d62'})
             st.plotly_chart(fig, use_container_width=True)
             
-            # 3. カテゴリ・ランキング表
+            # 3. テーブル
             st.markdown("##### 📋 カテゴリ別 年間支出と月平均")
             active_m = df_y_exp['月'].nunique() or 1
             p_data = df_y_exp.groupby('大項目')['AbsAmount'].sum().reset_index().sort_values('AbsAmount', ascending=False)
@@ -268,30 +247,26 @@ if df is not None and not df.empty:
             v_inc = t_inc['金額_数値'].sum()
             v_exp = t_exp['AbsAmount'].sum()
             
-            # KPI
-            c_kpi, c_com = st.columns([1.2, 1])
-            with c_kpi:
-                k1, k2, k3 = st.columns(3)
-                k1.metric("収入", f"¥{v_inc:,.0f}")
-                k2.metric("支出", f"¥{v_exp:,.0f}")
-                k3.metric("収支", f"¥{(v_inc - v_exp):,.0f}")
+            k1, k2, k3 = st.columns(3)
+            k1.metric("収入", f"¥{v_inc:,.0f}")
+            k2.metric("支出", f"¥{v_exp:,.0f}")
+            k3.metric("収支", f"¥{(v_inc - v_exp):,.0f}")
             
             # 振り返りコメント
-            with c_com:
-                cols_j = ["Month", "Comment", "Score"]
-                df_j = load_data_from_sheet("journal", cols_j)
-                target_str = f"{sy}-{sm:02d}"
-                comment_text = "（記録なし）"
-                score_display = "-"
-                
-                if not df_j.empty:
-                    df_j['Month'] = df_j['Month'].astype(str)
-                    row = df_j[df_j['Month'] == target_str]
-                    if not row.empty:
-                        comment_text = row.iloc[-1]['Comment']
-                        score_display = row.iloc[-1]['Score']
-                
-                st.info(f"📝 **満足度: {score_display}**\n\n{comment_text}")
+            cols_j = ["Month", "Comment", "Score"]
+            df_j = load_data_from_sheet("journal", cols_j)
+            target_str = f"{sy}-{sm:02d}"
+            comment_text = "（記録なし）"
+            score_display = "-"
+            
+            if not df_j.empty:
+                df_j['Month'] = df_j['Month'].astype(str)
+                row = df_j[df_j['Month'] == target_str]
+                if not row.empty:
+                    comment_text = row.iloc[-1]['Comment']
+                    score_display = row.iloc[-1]['Score']
+            
+            st.info(f"📝 **満足度: {score_display}**\n\n{comment_text}")
 
             st.markdown("---")
 
