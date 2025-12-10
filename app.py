@@ -6,6 +6,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 import google.generativeai as genai
 from google.api_core import exceptions
+import time
+import random
 
 # ==========================================
 # 1. 基本設定
@@ -19,36 +21,32 @@ if "app_password" in st.secrets:
         st.stop()
 
 # --- AIモデル自動検出・設定ロジック ---
-# モデル名を決め打ちせず、リストから有効なものを探す
 @st.cache_resource
 def configure_gemini():
     model = None
     status_text = "AI未接続"
-    
     if "gemini" in st.secrets:
         try:
             api_key = st.secrets["gemini"]["api_key"]
             genai.configure(api_key=api_key)
             
-            # 1. 利用可能なモデル一覧を取得
+            # 利用可能なモデルを検索
             available_models = []
             for m in genai.list_models():
                 if 'generateContent' in m.supported_generation_methods:
                     available_models.append(m.name)
             
-            # 2. 優先順位に従ってモデルを検索 (Flash -> Pro -> 1.0)
+            # 優先順位: Flash系 -> Pro系
             target_model_name = None
-            # 優先度順
-            priorities = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'gemini-1.0-pro']
+            priorities = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
             
             for p in priorities:
                 for m in available_models:
-                    if p in m: # 部分一致で検索
+                    if p in m:
                         target_model_name = m
                         break
                 if target_model_name: break
             
-            # 3. 見つからなければリストの先頭を使用
             if not target_model_name and available_models:
                 target_model_name = available_models[0]
             
@@ -56,27 +54,35 @@ def configure_gemini():
                 model = genai.GenerativeModel(target_model_name)
                 status_text = f"Connected: {target_model_name}"
             else:
-                status_text = "利用可能なモデルが見つかりませんでした"
-                
+                status_text = "利用可能なモデルなし"
         except Exception as e:
             status_text = f"接続エラー: {e}"
-    
     return model, status_text
 
-# モデル初期化
 model, ai_status = configure_gemini()
 
-# --- AI実行関数（エラーハンドリング強化） ---
+# --- AI実行関数（自動リトライ機能付き） ---
 def run_gemini(prompt):
     if not model:
         return f"⚠️ AIエラー: {ai_status}"
-    try:
-        response = model.generate_content(prompt)
-        return response.text
-    except exceptions.ResourceExhausted:
-        return "⚠️ **利用制限（無料枠上限）です。**\n\n短時間にアクセスが集中しました。1分ほど待ってから再度お試しください。"
-    except Exception as e:
-        return f"⚠️ エラーが発生しました: {e}"
+    
+    max_retries = 3
+    base_delay = 2
+    
+    for attempt in range(max_retries):
+        try:
+            response = model.generate_content(prompt)
+            return response.text
+        except exceptions.ResourceExhausted:
+            # 制限にかかったら待機してリトライ
+            if attempt < max_retries - 1:
+                wait_time = base_delay * (2 ** attempt) + random.uniform(0, 1) # 指数バックオフ
+                time.sleep(wait_time)
+                continue
+            else:
+                return "⚠️ **アクセス集中によりAIが応答できませんでした。**\n\nGoogleの無料枠の上限に達しました。1分ほど時間を空けてから再度お試しください。"
+        except Exception as e:
+            return f"⚠️ エラーが発生しました: {e}"
 
 # --- CSS ---
 st.markdown("""
