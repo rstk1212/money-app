@@ -7,7 +7,7 @@ from datetime import datetime
 import google.generativeai as genai
 
 # ==========================================
-# 1. 基本設定・セキュリティ
+# 1. 基本設定
 # ==========================================
 st.set_page_config(page_title="Financial Well-being", layout="wide", page_icon="💰")
 
@@ -17,14 +17,14 @@ if "app_password" in st.secrets:
     if password != st.secrets["app_password"]:
         st.stop()
 
-# AI設定 (最も安定したモデル指定)
+# AI設定 (最も確実なモデル名指定)
 model = None
 if "gemini" in st.secrets:
     try:
         genai.configure(api_key=st.secrets["gemini"]["api_key"])
+        # "-latest" は使わず、安定板を指定
         model = genai.GenerativeModel('gemini-1.5-flash')
     except Exception:
-        # エラー時は静かに無視（画面を壊さない）
         pass
 
 # --- CSS (デザイン調整) ---
@@ -133,7 +133,7 @@ with st.spinner("読込中..."):
 
 if not df_cloud.empty:
     df = df_cloud
-    # 数値化処理（エラー回避の要）
+    # 数値化処理
     df['金額_数値'] = df['金額_数値'].astype(str).apply(clean_currency)
     df['AbsAmount'] = df['AbsAmount'].astype(str).apply(clean_currency)
     df['日付'] = pd.to_datetime(df['日付'])
@@ -246,7 +246,6 @@ if df is not None and not df.empty:
             
             if not df_j.empty:
                 df_j['Month'] = df_j['Month'].astype(str)
-                # エラー回避: 数値化
                 df_j['Score'] = pd.to_numeric(df_j['Score'], errors='coerce').fillna(5)
                 
                 # 年でフィルタ
@@ -255,7 +254,6 @@ if df is not None and not df.empty:
                 if not df_j_year.empty:
                     df_j_year = df_j_year.sort_values('Month')
                     fig_score = px.line(df_j_year, x='Month', y='Score', markers=True, range_y=[0, 10])
-                    # X軸の調整
                     fig_score.update_xaxes(dtick="M1") 
                     st.plotly_chart(fig_score, use_container_width=True)
                     
@@ -398,15 +396,13 @@ if df is not None and not df.empty:
         
         if not df_assets.empty:
             for c in cols_a[1:]:
-                # 念のためクリーン関数を通してから数値化
-                df_assets[c] = df_assets[c].astype(str).apply(clean_currency)
+                df_assets[c] = df_assets[c].astype(str).str.replace(',', '').apply(pd.to_numeric, errors='coerce').fillna(0)
             
             latest = df_assets.iloc[-1]['Total']
             st.metric("総資産", f"¥{latest:,.0f}")
             
-            # グラフ（X軸の調整を追加）
             fig = px.area(df_assets, x='Month', y=['Bank','Securities','iDeCo','Other'])
-            fig.update_xaxes(type='category') # 日付としてではなくカテゴリ（文字）として扱うことで1点でも表示
+            fig.update_xaxes(type='category') # 1点でも表示
             st.plotly_chart(fig, use_container_width=True)
             
             disp = df_assets.copy()
