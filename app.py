@@ -17,13 +17,13 @@ if "app_password" in st.secrets:
     if password != st.secrets["app_password"]:
         st.stop()
 
-# AI設定 (最も確実なモデル名指定)
+# AI設定 (【変更点】最も実績のある安定版 'gemini-pro' を指定)
 model = None
 if "gemini" in st.secrets:
     try:
         genai.configure(api_key=st.secrets["gemini"]["api_key"])
-        # "-latest" は使わず、安定板を指定
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # 最新の1.5-flashではなく、最も安定している 'gemini-pro' を使用
+        model = genai.GenerativeModel('gemini-pro')
     except Exception:
         pass
 
@@ -226,7 +226,7 @@ if df is not None and not df.empty:
                          color_discrete_map={'収入': '#66c2a5', '支出': '#fc8d62'})
             st.plotly_chart(fig, use_container_width=True)
             
-            # 2. カテゴリ・ランキング表 (上に配置・グラフ削除)
+            # 2. カテゴリ・ランキング表 (グラフ削除)
             st.markdown("##### 📋 カテゴリ別 年間支出と月平均")
             active_m = df_y_exp['月'].nunique() or 1
             p_data = df_y_exp.groupby('大項目')['AbsAmount'].sum().reset_index().sort_values('AbsAmount', ascending=False)
@@ -238,7 +238,7 @@ if df is not None and not df.empty:
             bench_disp['月平均'] = p_data['月平均'].apply(lambda x: f"¥{x:,.0f}")
             st.dataframe(bench_disp, use_container_width=True, hide_index=True)
 
-            # 3. 満足度推移 (修正)
+            # 3. 満足度推移
             st.markdown("---")
             st.markdown("##### 😊 満足度の推移")
             cols_j = ["Month", "Comment", "Score"]
@@ -248,7 +248,6 @@ if df is not None and not df.empty:
                 df_j['Month'] = df_j['Month'].astype(str)
                 df_j['Score'] = pd.to_numeric(df_j['Score'], errors='coerce').fillna(5)
                 
-                # 年でフィルタ
                 df_j_year = df_j[df_j['Month'].str.startswith(str(selected_year))].copy()
                 
                 if not df_j_year.empty:
@@ -291,9 +290,8 @@ if df is not None and not df.empty:
             v_inc = t_inc['金額_数値'].sum()
             v_exp = t_exp['AbsAmount'].sum()
             
-            # --- レイアウト変更：左KPI、右コメント ---
+            # KPI
             c_kpi, c_com = st.columns([1.2, 1])
-            
             with c_kpi:
                 k1, k2, k3 = st.columns(3)
                 k1.metric("収入", f"¥{v_inc:,.0f}")
@@ -301,7 +299,7 @@ if df is not None and not df.empty:
                 k3.metric("収支", f"¥{(v_inc - v_exp):,.0f}")
             
             with c_com:
-                # 振り返りコメント取得
+                # 振り返りコメント
                 cols_j = ["Month", "Comment", "Score"]
                 df_j = load_data_from_sheet("journal", cols_j)
                 target_str = f"{sy}-{sm:02d}"
@@ -335,7 +333,7 @@ if df is not None and not df.empty:
                 else:
                     st.warning("AI設定が無効です")
 
-            # --- 比較表 (グラフ廃止・表に変更) ---
+            # 比較表
             st.markdown("##### 📊 今月 vs 年平均")
             if not t_exp.empty:
                 month_cat = t_exp.groupby('大項目')['AbsAmount'].sum().reset_index()
@@ -402,7 +400,7 @@ if df is not None and not df.empty:
             st.metric("総資産", f"¥{latest:,.0f}")
             
             fig = px.area(df_assets, x='Month', y=['Bank','Securities','iDeCo','Other'])
-            fig.update_xaxes(type='category') # 1点でも表示
+            fig.update_xaxes(type='category')
             st.plotly_chart(fig, use_container_width=True)
             
             disp = df_assets.copy()
