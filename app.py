@@ -4,10 +4,6 @@ import plotly.express as px
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
-import google.generativeai as genai
-from google.api_core import exceptions
-import time
-import random
 
 # ==========================================
 # 1. 基本設定
@@ -20,71 +16,7 @@ if "app_password" in st.secrets:
     if password != st.secrets["app_password"]:
         st.stop()
 
-# --- AIモデル自動検出・設定ロジック ---
-@st.cache_resource
-def configure_gemini():
-    model = None
-    status_text = "AI未接続"
-    if "gemini" in st.secrets:
-        try:
-            api_key = st.secrets["gemini"]["api_key"]
-            genai.configure(api_key=api_key)
-            
-            # 利用可能なモデルを検索
-            available_models = []
-            for m in genai.list_models():
-                if 'generateContent' in m.supported_generation_methods:
-                    available_models.append(m.name)
-            
-            # 優先順位: Flash系 -> Pro系
-            target_model_name = None
-            priorities = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
-            
-            for p in priorities:
-                for m in available_models:
-                    if p in m:
-                        target_model_name = m
-                        break
-                if target_model_name: break
-            
-            if not target_model_name and available_models:
-                target_model_name = available_models[0]
-            
-            if target_model_name:
-                model = genai.GenerativeModel(target_model_name)
-                status_text = f"Connected: {target_model_name}"
-            else:
-                status_text = "利用可能なモデルなし"
-        except Exception as e:
-            status_text = f"接続エラー: {e}"
-    return model, status_text
-
-model, ai_status = configure_gemini()
-
-# --- AI実行関数（自動リトライ機能付き） ---
-def run_gemini(prompt):
-    if not model:
-        return f"⚠️ AIエラー: {ai_status}"
-    
-    max_retries = 3
-    base_delay = 2
-    
-    for attempt in range(max_retries):
-        try:
-            response = model.generate_content(prompt)
-            return response.text
-        except exceptions.ResourceExhausted:
-            # 制限にかかったら待機してリトライ
-            if attempt < max_retries - 1:
-                wait_time = base_delay * (2 ** attempt) + random.uniform(0, 1) # 指数バックオフ
-                time.sleep(wait_time)
-                continue
-            else:
-                return "⚠️ **アクセス集中によりAIが応答できませんでした。**\n\nGoogleの無料枠の上限に達しました。1分ほど時間を空けてから再度お試しください。"
-        except Exception as e:
-            return f"⚠️ エラーが発生しました: {e}"
-
-# --- CSS ---
+# --- CSS (デザイン調整・スマホ最適化) ---
 st.markdown("""
 <style>
     html, body { font-size: 16px; }
@@ -109,15 +41,7 @@ st.markdown("""
         margin-top: 20px;
         margin-bottom: 10px;
         font-weight: 700;
-    }
-    .ai-box {
-        background-color: #f0f8ff;
-        border: 1px solid #b3e5fc;
-        padding: 15px;
-        border-radius: 8px;
-        margin-top: 10px;
-        font-size: 0.95rem;
-        white-space: pre-wrap;
+        color: #333;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -167,6 +91,7 @@ def save_data_to_sheet(df, sheet_name):
         worksheet.update([save_df.columns.values.tolist()] + save_df.values.tolist())
 
 def clean_currency(x):
+    """金額の文字列を数値に変換する安全装置"""
     if isinstance(x, str):
         clean_str = x.replace(',', '').replace('¥', '').replace('\\', '').replace('▲', '-')
         try: return float(clean_str)
@@ -182,12 +107,14 @@ cover_image = st.sidebar.file_uploader("表紙画像", type=['png', 'jpg', 'jpeg
 st.sidebar.markdown("---")
 st.sidebar.caption("データ管理")
 
+# データの読み込み
 df = None
 with st.spinner("読込中..."):
     df_cloud = load_data_from_sheet("transactions")
 
 if not df_cloud.empty:
     df = df_cloud
+    # 数値化処理
     df['金額_数値'] = df['金額_数値'].astype(str).apply(clean_currency)
     df['AbsAmount'] = df['AbsAmount'].astype(str).apply(clean_currency)
     df['日付'] = pd.to_datetime(df['日付'])
@@ -196,6 +123,7 @@ if not df_cloud.empty:
 else:
     st.sidebar.warning("データなし")
 
+# CSV更新
 csv_file = st.sidebar.file_uploader("CSV更新", type=['csv'])
 if csv_file:
     if st.sidebar.button("上書き更新"):
@@ -266,6 +194,7 @@ if df is not None and not df.empty:
         df_y_inc = df_income[df_income['年'] == selected_year]
         
         if not df_y_exp.empty:
+            # 1. 収支グラフ
             m_inc = df_y_inc.groupby('月')['金額_数値'].sum().reset_index()
             m_inc.columns = ['月', '金額']
             m_inc['種別'] = '収入'
@@ -278,6 +207,7 @@ if df is not None and not df.empty:
                          color_discrete_map={'収入': '#66c2a5', '支出': '#fc8d62'})
             st.plotly_chart(fig, use_container_width=True)
             
+            # 2. カテゴリ・ランキング表
             st.markdown("##### 📋 カテゴリ別 年間支出と月平均")
             active_m = df_y_exp['月'].nunique() or 1
             p_data = df_y_exp.groupby('大項目')['AbsAmount'].sum().reset_index().sort_values('AbsAmount', ascending=False)
@@ -289,6 +219,7 @@ if df is not None and not df.empty:
             bench_disp['月平均'] = p_data['月平均'].apply(lambda x: f"¥{x:,.0f}")
             st.dataframe(bench_disp, use_container_width=True, hide_index=True)
 
+            # 3. 満足度推移
             st.markdown("---")
             st.markdown("##### 😊 満足度の推移")
             cols_j = ["Month", "Comment", "Score"]
@@ -297,6 +228,7 @@ if df is not None and not df.empty:
             if not df_j.empty:
                 df_j['Month'] = df_j['Month'].astype(str)
                 df_j['Score'] = pd.to_numeric(df_j['Score'], errors='coerce').fillna(5)
+                
                 df_j_year = df_j[df_j['Month'].str.startswith(str(selected_year))].copy()
                 
                 if not df_j_year.empty:
@@ -304,16 +236,6 @@ if df is not None and not df.empty:
                     fig_score = px.line(df_j_year, x='Month', y='Score', markers=True, range_y=[0, 10])
                     fig_score.update_xaxes(dtick="M1") 
                     st.plotly_chart(fig_score, use_container_width=True)
-                    
-                    st.markdown("##### 🤖 AI ジャーナリング総括")
-                    if st.button("この1年の変化をAI分析"):
-                        with st.spinner("AI分析中..."):
-                            journal_text = ""
-                            for _, row in df_j_year.iterrows():
-                                journal_text += f"【{row['Month']}】満足度:{row['Score']}\n{row['Comment']}\n\n"
-                            prompt = f"以下の家計簿振り返りを読み、1年間の価値観の変化や成長を要約してください。\n\n{journal_text}"
-                            result_text = run_gemini(prompt)
-                            st.markdown(f'<div class="ai-box">{result_text}</div>', unsafe_allow_html=True)
                 else:
                     st.info("この年の振り返りデータがありません")
 
@@ -332,6 +254,7 @@ if df is not None and not df.empty:
             v_inc = t_inc['金額_数値'].sum()
             v_exp = t_exp['AbsAmount'].sum()
             
+            # KPI
             c_kpi, c_com = st.columns([1.2, 1])
             with c_kpi:
                 k1, k2, k3 = st.columns(3)
@@ -339,6 +262,7 @@ if df is not None and not df.empty:
                 k2.metric("支出", f"¥{v_exp:,.0f}")
                 k3.metric("収支", f"¥{(v_inc - v_exp):,.0f}")
             
+            # 振り返りコメント
             with c_com:
                 cols_j = ["Month", "Comment", "Score"]
                 df_j = load_data_from_sheet("journal", cols_j)
@@ -357,15 +281,7 @@ if df is not None and not df.empty:
 
             st.markdown("---")
 
-            st.markdown("##### 🤖 AI診断")
-            if st.button("診断する"):
-                with st.spinner("分析中..."):
-                    top_cat = t_exp.groupby('大項目')['AbsAmount'].sum().sort_values(ascending=False).head(5)
-                    top_str = ", ".join([f"{k}:{v:,.0f}" for k,v in top_cat.items()])
-                    prompt = f"FPとして家計診断をお願いします。\n年月: {sy}年{sm}月, 収入: {v_inc}, 支出: {v_exp}\n主な支出: {top_str}"
-                    result_text = run_gemini(prompt)
-                    st.markdown(f'<div class="ai-box">{result_text}</div>', unsafe_allow_html=True)
-
+            # 比較表
             st.markdown("##### 📊 今月 vs 年平均")
             if not t_exp.empty:
                 month_cat = t_exp.groupby('大項目')['AbsAmount'].sum().reset_index()
@@ -390,6 +306,7 @@ if df is not None and not df.empty:
                 disp_comp['平均との差'] = merged['Diff'].apply(format_diff)
                 st.dataframe(disp_comp, use_container_width=True, hide_index=True)
             
+            # 明細
             st.markdown("##### 📋 支出明細")
             if not t_exp.empty:
                 lst = t_exp[['日付', '内容', '金額_数値', '大項目']].copy()
