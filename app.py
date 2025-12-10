@@ -16,10 +16,25 @@ if "app_password" in st.secrets:
     if password != st.secrets["app_password"]:
         st.stop()
 
-# --- CSS (デザイン調整・スマホ最適化) ---
+# --- CSS (スマホ最適化・横揺れ防止) ---
 st.markdown("""
 <style>
-    html, body { font-size: 16px; }
+    /* 全体のフォントと横揺れ防止 */
+    html, body {
+        font-size: 16px;
+        overflow-x: hidden; /* 横スクロールを禁止してブレを防ぐ */
+    }
+    
+    /* コンテンツエリアの余白調整（スマホで見やすく） */
+    .block-container {
+        padding-top: 1.5rem;
+        padding-bottom: 5rem;
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+        max-width: 100%;
+    }
+
+    /* カードデザイン */
     div[data-testid="stMetric"], 
     div[data-testid="stDataFrame"], 
     div[data-testid="stExpander"], 
@@ -31,17 +46,20 @@ st.markdown("""
         padding: 15px;
         margin-bottom: 15px;
     }
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 5rem;
-    }
+
+    /* ヘッダー装飾 */
     h3, h5 {
         border-left: 4px solid #2E8B57;
         padding-left: 10px;
-        margin-top: 20px;
+        margin-top: 25px;
         margin-bottom: 10px;
         font-weight: 700;
         color: #333;
+    }
+    
+    /* グラフのレスポンシブ対応 */
+    .js-plotly-plot {
+        width: 100% !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -102,9 +120,7 @@ def clean_currency(x):
 # 2. サイドバー
 # ==========================================
 st.sidebar.title("メニュー")
-cover_image = st.sidebar.file_uploader("表紙画像", type=['png', 'jpg', 'jpeg'])
 
-st.sidebar.markdown("---")
 st.sidebar.caption("データ管理")
 
 # データの読み込み
@@ -174,10 +190,7 @@ if st.sidebar.button("資産保存"):
 # ==========================================
 # 3. メイン画面
 # ==========================================
-if cover_image:
-    st.image(cover_image, use_container_width=True)
-else:
-    st.title("Financial Well-being Manager")
+st.title("Financial Well-being Manager")
 
 if df is not None and not df.empty:
     df_expense = df[df['金額_数値'] < 0].copy()
@@ -194,7 +207,19 @@ if df is not None and not df.empty:
         df_y_inc = df_income[df_income['年'] == selected_year]
         
         if not df_y_exp.empty:
-            # 1. 収支グラフ
+            # 1. 年間 KPI (追加)
+            total_inc = df_y_inc['金額_数値'].sum()
+            total_exp = df_y_exp['AbsAmount'].sum()
+            total_bal = total_inc - total_exp
+            
+            k_y1, k_y2, k_y3 = st.columns(3)
+            k_y1.metric("年間収入", f"¥{total_inc:,.0f}")
+            k_y2.metric("年間支出", f"¥{total_exp:,.0f}")
+            k_y3.metric("年間収支", f"¥{total_bal:,.0f}")
+            
+            st.markdown("---")
+
+            # 2. 収支グラフ
             m_inc = df_y_inc.groupby('月')['金額_数値'].sum().reset_index()
             m_inc.columns = ['月', '金額']
             m_inc['種別'] = '収入'
@@ -207,7 +232,7 @@ if df is not None and not df.empty:
                          color_discrete_map={'収入': '#66c2a5', '支出': '#fc8d62'})
             st.plotly_chart(fig, use_container_width=True)
             
-            # 2. カテゴリ・ランキング表
+            # 3. カテゴリ・ランキング表
             st.markdown("##### 📋 カテゴリ別 年間支出と月平均")
             active_m = df_y_exp['月'].nunique() or 1
             p_data = df_y_exp.groupby('大項目')['AbsAmount'].sum().reset_index().sort_values('AbsAmount', ascending=False)
@@ -218,26 +243,8 @@ if df is not None and not df.empty:
             bench_disp['年間合計'] = p_data['AbsAmount'].apply(lambda x: f"¥{x:,.0f}")
             bench_disp['月平均'] = p_data['月平均'].apply(lambda x: f"¥{x:,.0f}")
             st.dataframe(bench_disp, use_container_width=True, hide_index=True)
-
-            # 3. 満足度推移
-            st.markdown("---")
-            st.markdown("##### 😊 満足度の推移")
-            cols_j = ["Month", "Comment", "Score"]
-            df_j = load_data_from_sheet("journal", cols_j)
             
-            if not df_j.empty:
-                df_j['Month'] = df_j['Month'].astype(str)
-                df_j['Score'] = pd.to_numeric(df_j['Score'], errors='coerce').fillna(5)
-                
-                df_j_year = df_j[df_j['Month'].str.startswith(str(selected_year))].copy()
-                
-                if not df_j_year.empty:
-                    df_j_year = df_j_year.sort_values('Month')
-                    fig_score = px.line(df_j_year, x='Month', y='Score', markers=True, range_y=[0, 10])
-                    fig_score.update_xaxes(dtick="M1") 
-                    st.plotly_chart(fig_score, use_container_width=True)
-                else:
-                    st.info("この年の振り返りデータがありません")
+            # 満足度推移は削除しました
 
     # --- Tab 2: 月別 ---
     with tab_month:
