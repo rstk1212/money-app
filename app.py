@@ -16,16 +16,16 @@ if "app_password" in st.secrets:
     if password != st.secrets["app_password"]:
         st.stop()
 
-# --- CSS (スマホ最適化・横揺れ防止) ---
+# --- CSS (文字色修正・スマホ最適化) ---
 st.markdown("""
 <style>
     /* 全体のフォントと横揺れ防止 */
     html, body {
         font-size: 16px;
-        overflow-x: hidden; /* 横スクロールを禁止してブレを防ぐ */
+        overflow-x: hidden;
     }
     
-    /* コンテンツエリアの余白調整（スマホで見やすく） */
+    /* コンテンツエリアの余白調整 */
     .block-container {
         padding-top: 1.5rem;
         padding-bottom: 5rem;
@@ -34,17 +34,26 @@ st.markdown("""
         max-width: 100%;
     }
 
-    /* カードデザイン */
+    /* カードデザイン (文字色を強制的に黒に指定) */
     div[data-testid="stMetric"], 
     div[data-testid="stDataFrame"], 
     div[data-testid="stExpander"], 
     div[data-testid="stForm"] {
-        background-color: #ffffff;
+        background-color: #ffffff !important; /* 背景は白 */
         border-radius: 12px;
         border: 1px solid #e0e0e0;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
         padding: 15px;
         margin-bottom: 15px;
+        color: #333333 !important; /* 文字色は黒系 */
+    }
+
+    /* メトリック（KPI）の数字とラベルの色を強制指定 */
+    div[data-testid="stMetricLabel"] p {
+        color: #666666 !important; /* ラベルはグレー */
+    }
+    div[data-testid="stMetricValue"] div {
+        color: #333333 !important; /* 数値は濃い黒 */
     }
 
     /* ヘッダー装飾 */
@@ -54,7 +63,7 @@ st.markdown("""
         margin-top: 25px;
         margin-bottom: 10px;
         font-weight: 700;
-        color: #333;
+        color: #333333 !important;
     }
     
     /* グラフのレスポンシブ対応 */
@@ -207,7 +216,7 @@ if df is not None and not df.empty:
         df_y_inc = df_income[df_income['年'] == selected_year]
         
         if not df_y_exp.empty:
-            # 1. 年間 KPI (追加)
+            # 1. 年間 KPI
             total_inc = df_y_inc['金額_数値'].sum()
             total_exp = df_y_exp['AbsAmount'].sum()
             total_bal = total_inc - total_exp
@@ -243,8 +252,6 @@ if df is not None and not df.empty:
             bench_disp['年間合計'] = p_data['AbsAmount'].apply(lambda x: f"¥{x:,.0f}")
             bench_disp['月平均'] = p_data['月平均'].apply(lambda x: f"¥{x:,.0f}")
             st.dataframe(bench_disp, use_container_width=True, hide_index=True)
-            
-            # 満足度推移は削除しました
 
     # --- Tab 2: 月別 ---
     with tab_month:
