@@ -17,17 +17,48 @@ if "app_password" in st.secrets:
     if password != st.secrets["app_password"]:
         st.stop()
 
-# AI設定 (【変更点】最も実績のある安定版 'gemini-pro' を指定)
+# --- AI設定 (自動検出ロジック) ---
 model = None
+model_name_display = "未接続"
+
 if "gemini" in st.secrets:
     try:
         genai.configure(api_key=st.secrets["gemini"]["api_key"])
-        # 最新の1.5-flashではなく、最も安定している 'gemini-pro' を使用
-        model = genai.GenerativeModel('gemini-pro')
-    except Exception:
+        
+        # 1. 利用可能なモデル一覧を取得
+        available_models = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                available_models.append(m.name)
+        
+        # 2. 優先順位に従ってモデルを決定
+        target_model = None
+        # 優先順位: 1.5-flash -> 1.5-pro -> 1.0-pro -> リストの先頭
+        priorities = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
+        
+        for p in priorities:
+            # "models/gemini-..." の形式でマッチング
+            for m in available_models:
+                if p in m:
+                    target_model = m
+                    break
+            if target_model: break
+            
+        # 見つからなければリストの最初を使う
+        if not target_model and available_models:
+            target_model = available_models[0]
+            
+        if target_model:
+            model = genai.GenerativeModel(target_model)
+            model_name_display = target_model # デバッグ用表示
+        else:
+            st.warning("⚠️ 利用可能なAIモデルが見つかりませんでした。")
+            
+    except Exception as e:
+        # ここでエラーを出さず、ボタン押下時に通知する
         pass
 
-# --- CSS (デザイン調整) ---
+# --- CSS ---
 st.markdown("""
 <style>
     html, body { font-size: 16px; }
@@ -110,7 +141,6 @@ def save_data_to_sheet(df, sheet_name):
         worksheet.update([save_df.columns.values.tolist()] + save_df.values.tolist())
 
 def clean_currency(x):
-    """金額の文字列を数値に変換する安全装置"""
     if isinstance(x, str):
         clean_str = x.replace(',', '').replace('¥', '').replace('\\', '').replace('▲', '-')
         try: return float(clean_str)
@@ -126,14 +156,12 @@ cover_image = st.sidebar.file_uploader("表紙画像", type=['png', 'jpg', 'jpeg
 st.sidebar.markdown("---")
 st.sidebar.caption("データ管理")
 
-# データの読み込み
 df = None
 with st.spinner("読込中..."):
     df_cloud = load_data_from_sheet("transactions")
 
 if not df_cloud.empty:
     df = df_cloud
-    # 数値化処理
     df['金額_数値'] = df['金額_数値'].astype(str).apply(clean_currency)
     df['AbsAmount'] = df['AbsAmount'].astype(str).apply(clean_currency)
     df['日付'] = pd.to_datetime(df['日付'])
@@ -142,7 +170,6 @@ if not df_cloud.empty:
 else:
     st.sidebar.warning("データなし")
 
-# CSV更新
 csv_file = st.sidebar.file_uploader("CSV更新", type=['csv'])
 if csv_file:
     if st.sidebar.button("上書き更新"):
@@ -213,7 +240,6 @@ if df is not None and not df.empty:
         df_y_inc = df_income[df_income['年'] == selected_year]
         
         if not df_y_exp.empty:
-            # 1. 収支グラフ
             m_inc = df_y_inc.groupby('月')['金額_数値'].sum().reset_index()
             m_inc.columns = ['月', '金額']
             m_inc['種別'] = '収入'
@@ -226,7 +252,6 @@ if df is not None and not df.empty:
                          color_discrete_map={'収入': '#66c2a5', '支出': '#fc8d62'})
             st.plotly_chart(fig, use_container_width=True)
             
-            # 2. カテゴリ・ランキング表 (グラフ削除)
             st.markdown("##### 📋 カテゴリ別 年間支出と月平均")
             active_m = df_y_exp['月'].nunique() or 1
             p_data = df_y_exp.groupby('大項目')['AbsAmount'].sum().reset_index().sort_values('AbsAmount', ascending=False)
@@ -238,7 +263,6 @@ if df is not None and not df.empty:
             bench_disp['月平均'] = p_data['月平均'].apply(lambda x: f"¥{x:,.0f}")
             st.dataframe(bench_disp, use_container_width=True, hide_index=True)
 
-            # 3. 満足度推移
             st.markdown("---")
             st.markdown("##### 😊 満足度の推移")
             cols_j = ["Month", "Comment", "Score"]
@@ -247,7 +271,6 @@ if df is not None and not df.empty:
             if not df_j.empty:
                 df_j['Month'] = df_j['Month'].astype(str)
                 df_j['Score'] = pd.to_numeric(df_j['Score'], errors='coerce').fillna(5)
-                
                 df_j_year = df_j[df_j['Month'].str.startswith(str(selected_year))].copy()
                 
                 if not df_j_year.empty:
@@ -256,12 +279,11 @@ if df is not None and not df.empty:
                     fig_score.update_xaxes(dtick="M1") 
                     st.plotly_chart(fig_score, use_container_width=True)
                     
-                    # 4. AI総括
                     st.markdown("##### 🤖 AI ジャーナリング総括")
                     if st.button("この1年の変化をAI分析"):
                         if model:
                             try:
-                                with st.spinner("AI分析中..."):
+                                with st.spinner(f"AI分析中..."):
                                     journal_text = ""
                                     for _, row in df_j_year.iterrows():
                                         journal_text += f"【{row['Month']}】満足度:{row['Score']}\n{row['Comment']}\n\n"
@@ -271,7 +293,7 @@ if df is not None and not df.empty:
                             except Exception as e:
                                 st.error(f"AIエラー: {e}")
                         else:
-                            st.warning("AI設定が正しくありません")
+                            st.error("利用可能なAIモデルが見つかりませんでした。")
                 else:
                     st.info("この年の振り返りデータがありません")
 
@@ -290,7 +312,6 @@ if df is not None and not df.empty:
             v_inc = t_inc['金額_数値'].sum()
             v_exp = t_exp['AbsAmount'].sum()
             
-            # KPI
             c_kpi, c_com = st.columns([1.2, 1])
             with c_kpi:
                 k1, k2, k3 = st.columns(3)
@@ -299,7 +320,6 @@ if df is not None and not df.empty:
                 k3.metric("収支", f"¥{(v_inc - v_exp):,.0f}")
             
             with c_com:
-                # 振り返りコメント
                 cols_j = ["Month", "Comment", "Score"]
                 df_j = load_data_from_sheet("journal", cols_j)
                 target_str = f"{sy}-{sm:02d}"
@@ -317,7 +337,6 @@ if df is not None and not df.empty:
 
             st.markdown("---")
 
-            # --- AI診断 ---
             st.markdown("##### 🤖 AI診断")
             if st.button("診断する"):
                 if model:
@@ -331,9 +350,8 @@ if df is not None and not df.empty:
                     except Exception as e:
                         st.error(f"AIエラー: {e}")
                 else:
-                    st.warning("AI設定が無効です")
+                    st.error("利用可能なAIモデルが見つかりませんでした。APIキーを確認してください。")
 
-            # 比較表
             st.markdown("##### 📊 今月 vs 年平均")
             if not t_exp.empty:
                 month_cat = t_exp.groupby('大項目')['AbsAmount'].sum().reset_index()
@@ -358,7 +376,6 @@ if df is not None and not df.empty:
                 disp_comp['平均との差'] = merged['Diff'].apply(format_diff)
                 st.dataframe(disp_comp, use_container_width=True, hide_index=True)
             
-            # 明細
             st.markdown("##### 📋 支出明細")
             if not t_exp.empty:
                 lst = t_exp[['日付', '内容', '金額_数値', '大項目']].copy()

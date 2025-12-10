@@ -4,4 +4,4 @@ plotly
 gspread
 oauth2client
 openpyxl
-google-generativeai>=0.7.0
+google-generativeai>=0.8.3
