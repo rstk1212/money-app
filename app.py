@@ -5,6 +5,8 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 import google.generativeai as genai
+from google.api_core import exceptions
+import time
 
 # ==========================================
 # 1. 基本設定
@@ -17,46 +19,27 @@ if "app_password" in st.secrets:
     if password != st.secrets["app_password"]:
         st.stop()
 
-# --- AI設定 (自動検出ロジック) ---
+# --- AI設定 (高速・高上限のFlashモデルに固定) ---
 model = None
-model_name_display = "未接続"
-
 if "gemini" in st.secrets:
     try:
         genai.configure(api_key=st.secrets["gemini"]["api_key"])
-        
-        # 1. 利用可能なモデル一覧を取得
-        available_models = []
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                available_models.append(m.name)
-        
-        # 2. 優先順位に従ってモデルを決定
-        target_model = None
-        # 優先順位: 1.5-flash -> 1.5-pro -> 1.0-pro -> リストの先頭
-        priorities = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
-        
-        for p in priorities:
-            # "models/gemini-..." の形式でマッチング
-            for m in available_models:
-                if p in m:
-                    target_model = m
-                    break
-            if target_model: break
-            
-        # 見つからなければリストの最初を使う
-        if not target_model and available_models:
-            target_model = available_models[0]
-            
-        if target_model:
-            model = genai.GenerativeModel(target_model)
-            model_name_display = target_model # デバッグ用表示
-        else:
-            st.warning("⚠️ 利用可能なAIモデルが見つかりませんでした。")
-            
-    except Exception as e:
-        # ここでエラーを出さず、ボタン押下時に通知する
+        # 無料枠でもリクエスト制限が緩い 'gemini-1.5-flash' を指定
+        model = genai.GenerativeModel('gemini-1.5-flash')
+    except Exception:
         pass
+
+# --- AI生成実行関数（エラーハンドリング付き） ---
+def run_gemini(prompt):
+    if not model:
+        return "⚠️ AI設定エラー: APIキーを確認してください。"
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except exceptions.ResourceExhausted:
+        return "⚠️ **利用制限（レートリミット）にかかりました。**\n\nGoogleの無料枠の上限です。約30秒〜1分ほど待ってから、もう一度ボタンを押してください。"
+    except Exception as e:
+        return f"⚠️ エラーが発生しました: {e}"
 
 # --- CSS ---
 st.markdown("""
@@ -281,19 +264,13 @@ if df is not None and not df.empty:
                     
                     st.markdown("##### 🤖 AI ジャーナリング総括")
                     if st.button("この1年の変化をAI分析"):
-                        if model:
-                            try:
-                                with st.spinner(f"AI分析中..."):
-                                    journal_text = ""
-                                    for _, row in df_j_year.iterrows():
-                                        journal_text += f"【{row['Month']}】満足度:{row['Score']}\n{row['Comment']}\n\n"
-                                    prompt = f"以下の家計簿振り返りを読み、1年間の価値観の変化や成長を要約してください。\n\n{journal_text}"
-                                    response = model.generate_content(prompt)
-                                    st.markdown(f'<div class="ai-box">{response.text}</div>', unsafe_allow_html=True)
-                            except Exception as e:
-                                st.error(f"AIエラー: {e}")
-                        else:
-                            st.error("利用可能なAIモデルが見つかりませんでした。")
+                        with st.spinner("AI分析中..."):
+                            journal_text = ""
+                            for _, row in df_j_year.iterrows():
+                                journal_text += f"【{row['Month']}】満足度:{row['Score']}\n{row['Comment']}\n\n"
+                            prompt = f"以下の家計簿振り返りを読み、1年間の価値観の変化や成長を要約してください。\n\n{journal_text}"
+                            result_text = run_gemini(prompt)
+                            st.markdown(f'<div class="ai-box">{result_text}</div>', unsafe_allow_html=True)
                 else:
                     st.info("この年の振り返りデータがありません")
 
@@ -339,18 +316,12 @@ if df is not None and not df.empty:
 
             st.markdown("##### 🤖 AI診断")
             if st.button("診断する"):
-                if model:
-                    try:
-                        with st.spinner("分析中..."):
-                            top_cat = t_exp.groupby('大項目')['AbsAmount'].sum().sort_values(ascending=False).head(5)
-                            top_str = ", ".join([f"{k}:{v:,.0f}" for k,v in top_cat.items()])
-                            prompt = f"FPとして家計診断をお願いします。\n年月: {sy}年{sm}月, 収入: {v_inc}, 支出: {v_exp}\n主な支出: {top_str}"
-                            response = model.generate_content(prompt)
-                            st.markdown(f'<div class="ai-box">{response.text}</div>', unsafe_allow_html=True)
-                    except Exception as e:
-                        st.error(f"AIエラー: {e}")
-                else:
-                    st.error("利用可能なAIモデルが見つかりませんでした。APIキーを確認してください。")
+                with st.spinner("分析中..."):
+                    top_cat = t_exp.groupby('大項目')['AbsAmount'].sum().sort_values(ascending=False).head(5)
+                    top_str = ", ".join([f"{k}:{v:,.0f}" for k,v in top_cat.items()])
+                    prompt = f"FPとして家計診断をお願いします。\n年月: {sy}年{sm}月, 収入: {v_inc}, 支出: {v_exp}\n主な支出: {top_str}"
+                    result_text = run_gemini(prompt)
+                    st.markdown(f'<div class="ai-box">{result_text}</div>', unsafe_allow_html=True)
 
             st.markdown("##### 📊 今月 vs 年平均")
             if not t_exp.empty:
