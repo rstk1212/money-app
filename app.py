@@ -66,7 +66,6 @@ def save_data_to_sheet(df, sheet_name):
     if worksheet:
         worksheet.clear()
         save_df = df.copy()
-        # 日付型を文字列に変換して保存エラーを回避
         if '日付' in save_df.columns:
             save_df['日付'] = save_df['日付'].astype(str)
         save_df = save_df.astype(str)
@@ -101,7 +100,7 @@ if not df_cloud.empty:
 else:
     st.sidebar.warning("データなし")
 
-# --- A. 手入力で追加 (新機能) ---
+# --- A. 手入力で追加 ---
 with st.sidebar.expander("✍️ 手入力で追加", expanded=False):
     with st.form("manual_input_form", clear_on_submit=True):
         m_date = st.date_input("日付", datetime.today())
@@ -113,14 +112,11 @@ with st.sidebar.expander("✍️ 手入力で追加", expanded=False):
         
         if st.form_submit_button("追加する"):
             try:
-                # 収支に合わせて符号を調整
                 final_amount = -m_amount if m_type == "支出" else m_amount
-                
-                # 新しい行を作成
                 new_row = pd.DataFrame({
                     "日付": [pd.to_datetime(m_date)],
                     "内容": [m_desc],
-                    "金額（円）": [str(final_amount)], # 文字列として保存
+                    "金額（円）": [str(final_amount)],
                     "保有金融機関": ["手入力"],
                     "大項目": [m_cat_l],
                     "中項目": [m_cat_m],
@@ -130,9 +126,7 @@ with st.sidebar.expander("✍️ 手入力で追加", expanded=False):
                     "AbsAmount": [abs(final_amount)]
                 })
                 
-                # 既存データと結合して保存
                 if not df_cloud.empty:
-                    # 必要な列だけに絞る
                     cols = new_row.columns.tolist()
                     df_current = df_cloud[cols].copy() if set(cols).issubset(df_cloud.columns) else df_cloud
                     df_merged = pd.concat([df_current, new_row], ignore_index=True)
@@ -143,7 +137,6 @@ with st.sidebar.expander("✍️ 手入力で追加", expanded=False):
                 save_data_to_sheet(df_merged, "transactions")
                 st.success("追加しました！")
                 st.rerun()
-                
             except Exception as e:
                 st.error(f"エラー: {e}")
 
@@ -155,7 +148,6 @@ if csv_file:
             df_new = pd.read_csv(csv_file, encoding='shift-jis')
             df_new['日付'] = pd.to_datetime(df_new['日付'], errors='coerce')
             df_new = df_new.dropna(subset=['日付'])
-            
             df_new['年'] = df_new['日付'].dt.year
             df_new['月'] = df_new['日付'].dt.month
             df_new['金額_数値'] = df_new['金額（円）'].apply(clean_currency)
@@ -214,8 +206,8 @@ if st.sidebar.button("資産保存"):
 # ==========================================
 st.title("Financial Well-being Manager")
 
-if df is not None and not df.empty:
-    # データを日付順にソート（念のため）
+# 【修正箇所】df ではなく df_cloud を参照するように修正
+if not df_cloud.empty:
     df_main = df_cloud.sort_values('日付', ascending=False)
     
     df_expense = df_main[df_main['金額_数値'] < 0].copy()
@@ -339,10 +331,10 @@ if df is not None and not df.empty:
             
             st.markdown("##### 📋 支出明細")
             if not t_exp.empty:
+                # 保有金融機関を表示に追加して、手入力データが分かるようにする
                 lst = t_exp[['日付', '内容', '金額_数値', '大項目', '保有金融機関']].copy()
                 lst['日付'] = lst['日付'].dt.strftime('%m/%d')
                 lst['金額'] = lst['金額_数値'].apply(lambda x: f"¥{x:,.0f}")
-                # 保有金融機関も表示して、手入力かどうかわかるようにする
                 st.dataframe(lst[['日付', '内容', '金額', '大項目', '保有金融機関']], use_container_width=True, hide_index=True)
 
     # --- Tab 3: 振り返り ---
