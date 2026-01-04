@@ -66,7 +66,9 @@ def save_data_to_sheet(df, sheet_name):
     if worksheet:
         worksheet.clear()
         save_df = df.copy()
-        # エラー回避のため全データを文字列化して保存
+        # 日付型を文字列に変換して保存エラーを回避
+        if '日付' in save_df.columns:
+            save_df['日付'] = save_df['日付'].astype(str)
         save_df = save_df.astype(str)
         worksheet.update([save_df.columns.values.tolist()] + save_df.values.tolist())
 
@@ -78,7 +80,7 @@ def clean_currency(x):
     return x
 
 # ==========================================
-# 2. サイドバー (データ追加機能の実装)
+# 2. サイドバー (データ管理)
 # ==========================================
 st.sidebar.title("メニュー")
 st.sidebar.caption("データ管理")
@@ -88,10 +90,9 @@ df_cloud = pd.DataFrame()
 with st.spinner("読込中..."):
     df_cloud = load_data_from_sheet("transactions")
 
-# データ件数の表示
+# データ件数表示 & 型変換
 if not df_cloud.empty:
     st.sidebar.info(f"保存済みデータ: {len(df_cloud)}件")
-    # 型変換（表示・計算用）
     df_cloud['金額_数値'] = df_cloud['金額_数値'].astype(str).apply(clean_currency)
     df_cloud['AbsAmount'] = df_cloud['AbsAmount'].astype(str).apply(clean_currency)
     df_cloud['日付'] = pd.to_datetime(df_cloud['日付'])
@@ -100,57 +101,84 @@ if not df_cloud.empty:
 else:
     st.sidebar.warning("データなし")
 
-# --- 新しいCSVの追加処理 ---
+# --- A. 手入力で追加 (新機能) ---
+with st.sidebar.expander("✍️ 手入力で追加", expanded=False):
+    with st.form("manual_input_form", clear_on_submit=True):
+        m_date = st.date_input("日付", datetime.today())
+        m_type = st.radio("収支", ["支出", "収入"], horizontal=True)
+        m_amount = st.number_input("金額 (円)", min_value=0, step=100)
+        m_desc = st.text_input("内容 (例: 現金ランチ)")
+        m_cat_l = st.selectbox("大項目", ["食費", "日用品", "交通費", "交際費", "趣味・娯楽", "給与", "その他"], index=0)
+        m_cat_m = st.text_input("中項目 (任意)")
+        
+        if st.form_submit_button("追加する"):
+            try:
+                # 収支に合わせて符号を調整
+                final_amount = -m_amount if m_type == "支出" else m_amount
+                
+                # 新しい行を作成
+                new_row = pd.DataFrame({
+                    "日付": [pd.to_datetime(m_date)],
+                    "内容": [m_desc],
+                    "金額（円）": [str(final_amount)], # 文字列として保存
+                    "保有金融機関": ["手入力"],
+                    "大項目": [m_cat_l],
+                    "中項目": [m_cat_m],
+                    "年": [m_date.year],
+                    "月": [m_date.month],
+                    "金額_数値": [final_amount],
+                    "AbsAmount": [abs(final_amount)]
+                })
+                
+                # 既存データと結合して保存
+                if not df_cloud.empty:
+                    # 必要な列だけに絞る
+                    cols = new_row.columns.tolist()
+                    df_current = df_cloud[cols].copy() if set(cols).issubset(df_cloud.columns) else df_cloud
+                    df_merged = pd.concat([df_current, new_row], ignore_index=True)
+                    df_merged = df_merged.sort_values('日付', ascending=False)
+                else:
+                    df_merged = new_row
+                
+                save_data_to_sheet(df_merged, "transactions")
+                st.success("追加しました！")
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"エラー: {e}")
+
+# --- B. 月次CSVを追加 ---
 csv_file = st.sidebar.file_uploader("月次CSVを追加", type=['csv'])
 if csv_file:
-    # ボタンを「追加・統合」に変更
     if st.sidebar.button("データを追加保存する"):
         try:
-            # 1. 新しいCSVの読み込みと加工
             df_new = pd.read_csv(csv_file, encoding='shift-jis')
-            
-            # 日付処理
             df_new['日付'] = pd.to_datetime(df_new['日付'], errors='coerce')
             df_new = df_new.dropna(subset=['日付'])
             
-            # 分析用列の作成
             df_new['年'] = df_new['日付'].dt.year
             df_new['月'] = df_new['日付'].dt.month
             df_new['金額_数値'] = df_new['金額（円）'].apply(clean_currency)
             df_new['AbsAmount'] = df_new['金額_数値'].abs()
             
-            # 保存する列を定義
             save_cols = ['日付', '内容', '金額（円）', '保有金融機関', '大項目', '中項目', '年', '月', '金額_数値', 'AbsAmount']
-            # CSVに存在する列だけでフィルタリング
             existing_cols_new = [c for c in save_cols if c in df_new.columns]
             df_new_save = df_new[existing_cols_new]
 
-            # 2. 既存データとの統合
             if not df_cloud.empty:
-                # 既存データも同じ列構成にする
                 existing_cols_cloud = [c for c in save_cols if c in df_cloud.columns]
                 df_cloud_save = df_cloud[existing_cols_cloud]
-                
-                # 結合 (既存 + 新規)
                 df_merged = pd.concat([df_cloud_save, df_new_save], ignore_index=True)
-                
-                # 重複排除（日付・内容・金額が同じなら重複とみなして削除）
-                # keep='last' で新しい方を優先
                 df_merged = df_merged.drop_duplicates(subset=['日付', '内容', '金額（円）'], keep='last')
-                
-                # 日付順に並べ替え
                 if '日付' in df_merged.columns:
                     df_merged['日付'] = pd.to_datetime(df_merged['日付'])
                     df_merged = df_merged.sort_values('日付', ascending=False)
             else:
-                # 既存データがない場合は新規のみ
                 df_merged = df_new_save
 
-            # 3. 保存実行
             save_data_to_sheet(df_merged, "transactions")
             st.sidebar.success(f"追加完了！ (合計 {len(df_merged)}件)")
             st.rerun() 
-            
         except Exception as e:
             st.sidebar.error(f"エラー: {e}")
 
@@ -186,9 +214,10 @@ if st.sidebar.button("資産保存"):
 # ==========================================
 st.title("Financial Well-being Manager")
 
-# 表示用データ（df_cloudはすでに読み込み・型変換済み）
-if not df_cloud.empty:
-    df_main = df_cloud
+if df is not None and not df.empty:
+    # データを日付順にソート（念のため）
+    df_main = df_cloud.sort_values('日付', ascending=False)
+    
     df_expense = df_main[df_main['金額_数値'] < 0].copy()
     df_income = df_main[df_main['金額_数値'] > 0].copy()
 
@@ -207,10 +236,10 @@ if not df_cloud.empty:
             total_exp = df_y_exp['AbsAmount'].sum()
             total_bal = total_inc - total_exp
             
-            k1, k2, k3 = st.columns(3)
-            k1.metric("年間収入", f"¥{total_inc:,.0f}")
-            k2.metric("年間支出", f"¥{total_exp:,.0f}")
-            k3.metric("年間収支", f"¥{total_bal:,.0f}")
+            k_y1, k_y2, k_y3 = st.columns(3)
+            k_y1.metric("年間収入", f"¥{total_inc:,.0f}")
+            k_y2.metric("年間支出", f"¥{total_exp:,.0f}")
+            k_y3.metric("年間収支", f"¥{total_bal:,.0f}")
             
             st.markdown("---")
 
@@ -310,10 +339,11 @@ if not df_cloud.empty:
             
             st.markdown("##### 📋 支出明細")
             if not t_exp.empty:
-                lst = t_exp[['日付', '内容', '金額_数値', '大項目']].copy()
+                lst = t_exp[['日付', '内容', '金額_数値', '大項目', '保有金融機関']].copy()
                 lst['日付'] = lst['日付'].dt.strftime('%m/%d')
                 lst['金額'] = lst['金額_数値'].apply(lambda x: f"¥{x:,.0f}")
-                st.dataframe(lst[['日付', '内容', '金額', '大項目']], use_container_width=True, hide_index=True)
+                # 保有金融機関も表示して、手入力かどうかわかるようにする
+                st.dataframe(lst[['日付', '内容', '金額', '大項目', '保有金融機関']], use_container_width=True, hide_index=True)
 
     # --- Tab 3: 振り返り ---
     with tab_journal:
@@ -348,4 +378,4 @@ if not df_cloud.empty:
             for c in cols_a[1:]: disp[c] = disp[c].apply(lambda x: f"¥{x:,.0f}")
             st.dataframe(disp, hide_index=True)
         else: st.info("サイドバーから資産を入力してください")
-else: st.info("👈 サイドバーからCSVをアップロードしてください")
+else: st.info("👈 サイドバーからCSVをアップロード、または手入力してください")
