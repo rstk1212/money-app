@@ -305,11 +305,8 @@ def yoy_html_income(current, previous):
     return '<span class="kpi-badge neutral">前年同額</span>'
 
 def kpi(label, value, badge="", cls=""):
-    return f"""<div class="kpi-card {cls}">
-        <div class="kpi-label">{label}</div>
-        <div class="kpi-value">{value}</div>
-        {badge}
-    </div>"""
+    badge_html = badge if badge else '<span style="display:block;height:4px;"></span>'
+    return f'<div class="kpi-card {cls}"><div class="kpi-label">{label}</div><div class="kpi-value">{value}</div>{badge_html}</div>'
 
 def cost_type(cat):
     return "固定費" if cat in FIXED_COST_CATEGORIES else "変動費"
@@ -545,7 +542,8 @@ with tab_dash:
                     cat_data, values='AbsAmount', names='大項目', hole=0.5,
                     color_discrete_sequence=colors[:len(cat_data)],
                 )
-                fig2.update_layout(**CHART_LAYOUT, height=320, showlegend=True,
+                pie_layout = {k: v for k, v in CHART_LAYOUT.items() if k != 'legend'}
+                fig2.update_layout(**pie_layout, height=320, showlegend=True,
                     legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.02, font=dict(size=10)))
                 fig2.update_traces(textposition='inside', textinfo='percent', textfont_size=11)
                 st.plotly_chart(fig2, use_container_width=True)
@@ -975,11 +973,7 @@ with tab_asset:
                     st.markdown(kpi("目標金額", fmt(g_target), f'<span class="kpi-badge neutral">期限: {g_date_str}</span>', "asset"), unsafe_allow_html=True)
                 with pc2:
                     bar_c = "#10b981" if progress >= 60 else "#f59e0b" if progress >= 30 else "#ef4444"
-                    st.markdown(f"""<div class="kpi-card asset">
-                        <div class="kpi-label">達成率</div>
-                        <div class="kpi-value">{progress:.1f}%</div>
-                        <div class="budget-bar-bg"><div class="budget-bar-fill" style="width:{progress}%;background:{bar_c};"></div></div>
-                    </div>""", unsafe_allow_html=True)
+                    st.markdown(f'<div class="kpi-card asset"><div class="kpi-label">達成率</div><div class="kpi-value">{progress:.1f}%</div><div class="budget-bar-bg"><div class="budget-bar-fill" style="width:{progress}%;background:{bar_c};"></div></div></div>', unsafe_allow_html=True)
                 with pc3:
                     st.markdown(kpi("残り", fmt(remaining), "", ""), unsafe_allow_html=True)
 
