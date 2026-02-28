@@ -7,6 +7,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 import numpy as np
+import json
 
 # ==========================================
 # 基本設定
@@ -23,115 +24,180 @@ if "app_password" in st.secrets:
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
     if not st.session_state.authenticated:
-        col_pw = st.columns([1, 2, 1])
-        with col_pw[1]:
-            st.markdown("### 🔐 パスワードを入力してください")
-            password = st.text_input("パスワード", type="password", label_visibility="collapsed")
-            if st.button("ログイン", use_container_width=True):
-                if password == st.secrets["app_password"]:
-                    st.session_state.authenticated = True
-                    st.rerun()
-                else:
-                    st.error("パスワードが正しくありません")
-            st.stop()
+        st.markdown("""
+        <style>
+            .block-container { max-width: 400px; padding-top: 15vh; }
+            .login-box { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+                padding: 2.5rem; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+            .login-box h2 { color: #f8fafc; text-align: center; margin-bottom: 0.3rem; font-size: 1.4rem; }
+            .login-box p { color: #94a3b8; text-align: center; font-size: 0.85rem; margin-bottom: 1.5rem; }
+        </style>
+        <div class="login-box"><h2>🏠 家計簿ダッシュボード</h2><p>パスワードを入力してください</p></div>
+        """, unsafe_allow_html=True)
+        password = st.text_input("パスワード", type="password", label_visibility="collapsed")
+        if st.button("ログイン", use_container_width=True, type="primary"):
+            if password == st.secrets["app_password"]:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("パスワードが正しくありません")
+        st.stop()
 
 # ==========================================
-# CSS
+# CSS — フル幅・モダンUI
 # ==========================================
 st.markdown("""
 <style>
-    /* 全体 */
+    /* ===== 全体レイアウト ===== */
     html, body { font-size: 15px; }
-    .block-container { padding-top: 1rem; padding-bottom: 2rem; max-width: 1200px; }
-    
-    /* ヘッダー */
+    .block-container {
+        padding: 1rem 2rem 3rem 2rem;
+        max-width: 100% !important;
+    }
+    header[data-testid="stHeader"] { background: transparent; }
+
+    /* ===== ヘッダー ===== */
     .app-header {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-        color: white;
-        padding: 1.5rem 2rem;
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
+        color: #f8fafc;
+        padding: 1.8rem 2.5rem;
         border-radius: 16px;
         margin-bottom: 1.5rem;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        box-shadow: 0 8px 30px rgba(15,23,42,0.25);
+        position: relative;
+        overflow: hidden;
     }
-    .app-header h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
-    .app-header p { margin: 0.3rem 0 0; opacity: 0.8; font-size: 0.9rem; }
+    .app-header::before {
+        content: '';
+        position: absolute;
+        top: -50%; right: -20%;
+        width: 400px; height: 400px;
+        background: radial-gradient(circle, rgba(59,130,246,0.12) 0%, transparent 70%);
+        border-radius: 50%;
+    }
+    .app-header h1 { margin: 0; font-size: 1.5rem; font-weight: 700; position: relative; z-index: 1; }
+    .app-header p { margin: 0.3rem 0 0; opacity: 0.6; font-size: 0.85rem; position: relative; z-index: 1; }
 
-    /* KPIカード */
+    /* ===== KPIカード ===== */
     .kpi-card {
-        background: white;
-        border-radius: 12px;
-        padding: 1.2rem;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-        border-left: 4px solid #ccc;
-        margin-bottom: 1rem;
+        background: #ffffff;
+        border-radius: 14px;
+        padding: 1.2rem 1.4rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
+        border-top: 3px solid #e2e8f0;
+        margin-bottom: 0.8rem;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
-    .kpi-card.income { border-left-color: #2ecc71; }
-    .kpi-card.expense { border-left-color: #e74c3c; }
-    .kpi-card.balance { border-left-color: #3498db; }
-    .kpi-card.budget { border-left-color: #f39c12; }
-    .kpi-card.asset { border-left-color: #9b59b6; }
-    .kpi-label { font-size: 0.8rem; color: #888; font-weight: 600; letter-spacing: 0.5px; }
-    .kpi-value { font-size: 1.6rem; font-weight: 700; color: #1a1a2e; margin: 0.3rem 0; }
-    .kpi-sub { font-size: 0.75rem; color: #999; }
-    .kpi-sub.positive { color: #2ecc71; }
-    .kpi-sub.negative { color: #e74c3c; }
+    .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+    .kpi-card.income { border-top-color: #10b981; }
+    .kpi-card.expense { border-top-color: #ef4444; }
+    .kpi-card.balance-plus { border-top-color: #3b82f6; }
+    .kpi-card.balance-minus { border-top-color: #f59e0b; }
+    .kpi-card.budget { border-top-color: #8b5cf6; }
+    .kpi-card.asset { border-top-color: #6366f1; }
+    .kpi-label { font-size: 0.75rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; }
+    .kpi-value { font-size: 1.7rem; font-weight: 800; color: #0f172a; margin: 0.2rem 0 0.3rem; letter-spacing: -0.5px; }
+    .kpi-badge {
+        display: inline-block;
+        font-size: 0.78rem;
+        font-weight: 600;
+        padding: 3px 10px;
+        border-radius: 20px;
+        line-height: 1.4;
+    }
+    .kpi-badge.up { background: #fef2f2; color: #dc2626; }
+    .kpi-badge.down { background: #f0fdf4; color: #16a34a; }
+    .kpi-badge.neutral { background: #f8fafc; color: #94a3b8; }
 
-    /* セクション */
+    /* ===== セクションタイトル ===== */
     .section-title {
-        font-size: 1.1rem;
+        font-size: 1rem;
         font-weight: 700;
-        color: #1a1a2e;
-        border-left: 4px solid #3498db;
-        padding-left: 12px;
-        margin: 1.5rem 0 1rem;
+        color: #0f172a;
+        margin: 1.8rem 0 1rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .section-title::before {
+        content: '';
+        display: inline-block;
+        width: 4px;
+        height: 20px;
+        background: linear-gradient(180deg, #3b82f6, #6366f1);
+        border-radius: 2px;
     }
 
-    /* テーブル */
-    div[data-testid="stDataFrame"] { border-radius: 8px; overflow: hidden; }
-
-    /* タブ */
-    .stTabs [data-baseweb="tab-list"] { gap: 0px; }
-    .stTabs [data-baseweb="tab"] {
-        padding: 10px 20px;
-        font-weight: 600;
-        font-size: 0.9rem;
-    }
-
-    /* ボタン */
-    .stButton>button {
-        border-radius: 8px;
-        font-weight: 600;
-        transition: all 0.2s;
-    }
-
-    /* Expander */
-    div[data-testid="stExpander"] {
+    /* ===== テーブル ===== */
+    div[data-testid="stDataFrame"] {
         border-radius: 12px;
-        border: 1px solid #e8e8e8;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
 
-    /* Metric非表示（カスタムKPIカード使用のため） */
+    /* ===== タブ ===== */
+    .stTabs [data-baseweb="tab-list"] { gap: 0; border-bottom: 2px solid #e2e8f0; }
+    .stTabs [data-baseweb="tab"] {
+        padding: 12px 24px;
+        font-weight: 600;
+        font-size: 0.88rem;
+        color: #64748b;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+    }
+    .stTabs [aria-selected="true"] { color: #3b82f6; border-bottom-color: #3b82f6; }
+
+    /* ===== プログレスバー ===== */
+    .budget-bar-bg { background: #f1f5f9; border-radius: 8px; height: 12px; overflow: hidden; margin: 6px 0; }
+    .budget-bar-fill { height: 100%; border-radius: 8px; transition: width 0.6s ease; }
+
+    /* ===== Streamlitデフォルト非表示 ===== */
     div[data-testid="stMetric"] { display: none; }
 
-    /* プログレスバー */
-    .budget-bar-bg {
-        background: #f0f0f0;
-        border-radius: 6px;
-        height: 10px;
-        overflow: hidden;
-        margin: 4px 0;
+    /* ===== 固定費/変動費カード ===== */
+    .fv-row {
+        display: flex; gap: 16px; margin-bottom: 1rem;
     }
-    .budget-bar-fill {
-        height: 100%;
-        border-radius: 6px;
-        transition: width 0.5s ease;
+    .fv-card {
+        flex: 1;
+        background: #ffffff;
+        border-radius: 14px;
+        padding: 1.2rem 1.4rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
+    .fv-card .fv-label { font-size: 0.78rem; color: #94a3b8; font-weight: 600; }
+    .fv-card .fv-value { font-size: 1.4rem; font-weight: 700; color: #0f172a; margin-top: 0.2rem; }
+    .fv-card .fv-pct { font-size: 0.8rem; color: #64748b; margin-top: 0.15rem; }
+
+    /* ===== AI分析結果ボックス ===== */
+    .ai-result {
+        background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        padding: 1.5rem 2rem;
+        line-height: 1.8;
+        font-size: 0.92rem;
+        color: #334155;
+        white-space: pre-wrap;
+    }
+
+    /* ===== 振り返りカード ===== */
+    .journal-card {
+        background: #ffffff;
+        border-radius: 14px;
+        padding: 1.2rem 1.6rem;
+        margin-bottom: 0.8rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        border-left: 4px solid #6366f1;
+    }
+    .journal-month { font-weight: 700; color: #0f172a; font-size: 1rem; }
+    .journal-score { font-size: 0.8rem; color: #64748b; }
+    .journal-comment { color: #475569; font-size: 0.9rem; line-height: 1.7; margin-top: 0.5rem; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 定数定義
+# 定数
 # ==========================================
 SPREADSHEET_NAME = "money_db"
 
@@ -141,12 +207,18 @@ CATEGORY_OPTIONS = [
     "現金・カード", "交際費", "教養・教育", "通信費", "未分類", "交通費"
 ]
 
-# 固定費カテゴリ（自動分類用）
 FIXED_COST_CATEGORIES = {"住宅", "水道・光熱費", "保険", "通信費", "税・社会保障", "自動車"}
-VARIABLE_COST_CATEGORIES = set(CATEGORY_OPTIONS) - FIXED_COST_CATEGORIES
+
+CHART_LAYOUT = dict(
+    margin=dict(l=0, r=0, t=10, b=0),
+    plot_bgcolor='rgba(0,0,0,0)',
+    paper_bgcolor='rgba(0,0,0,0)',
+    font=dict(family="sans-serif", size=12, color="#334155"),
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=11)),
+)
 
 # ==========================================
-# Google Sheets接続
+# DB接続
 # ==========================================
 @st.cache_resource
 def get_gspread_client():
@@ -194,57 +266,56 @@ def save_sheet(df, sheet_name):
         ws.update([save_df.columns.values.tolist()] + save_df.values.tolist())
 
 # ==========================================
-# ユーティリティ関数
+# ユーティリティ
 # ==========================================
 def clean_currency(x):
     if isinstance(x, str):
         s = x.replace(',', '').replace('¥', '').replace('\\', '').replace('▲', '-').strip()
-        try:
-            return float(s)
-        except ValueError:
-            return 0
+        try: return float(s)
+        except ValueError: return 0
     return float(x) if x else 0
 
-def format_yen(val):
-    """円表示フォーマット"""
-    if val >= 0:
-        return f"¥{val:,.0f}"
-    else:
-        return f"-¥{abs(val):,.0f}"
+def fmt(val):
+    if val >= 0: return f"¥{val:,.0f}"
+    return f"-¥{abs(val):,.0f}"
 
-def format_yen_with_sign(val):
-    """符号付き円表示"""
-    if val > 0:
-        return f"+¥{val:,.0f}"
-    elif val < 0:
-        return f"-¥{abs(val):,.0f}"
+def fmt_sign(val):
+    if val > 0: return f"+¥{val:,.0f}"
+    if val < 0: return f"-¥{abs(val):,.0f}"
     return "¥0"
 
-def yoy_badge(current, previous):
-    """前年同月比バッジHTML"""
+def yoy_html(current, previous):
     if previous == 0:
-        return '<span class="kpi-sub">前年データなし</span>'
+        return '<span class="kpi-badge neutral">前年データなし</span>'
     diff_pct = ((current - previous) / abs(previous)) * 100
-    cls = "positive" if diff_pct <= 0 else "negative"
-    arrow = "↓" if diff_pct <= 0 else "↑"
-    return f'<span class="kpi-sub {cls}">{arrow} 前年比 {abs(diff_pct):.1f}%</span>'
+    if diff_pct > 0:
+        return f'<span class="kpi-badge up">▲ 前年比 +{abs(diff_pct):.1f}%</span>'
+    elif diff_pct < 0:
+        return f'<span class="kpi-badge down">▼ 前年比 {diff_pct:.1f}%</span>'
+    return '<span class="kpi-badge neutral">前年同額</span>'
 
-def kpi_card(label, value, sub_html="", card_class=""):
-    """KPIカードHTML"""
-    return f"""
-    <div class="kpi-card {card_class}">
+def yoy_html_income(current, previous):
+    if previous == 0:
+        return '<span class="kpi-badge neutral">前年データなし</span>'
+    diff_pct = ((current - previous) / abs(previous)) * 100
+    if diff_pct > 0:
+        return f'<span class="kpi-badge down">▲ 前年比 +{abs(diff_pct):.1f}%</span>'
+    elif diff_pct < 0:
+        return f'<span class="kpi-badge up">▼ 前年比 {diff_pct:.1f}%</span>'
+    return '<span class="kpi-badge neutral">前年同額</span>'
+
+def kpi(label, value, badge="", cls=""):
+    return f"""<div class="kpi-card {cls}">
         <div class="kpi-label">{label}</div>
         <div class="kpi-value">{value}</div>
-        {sub_html}
-    </div>
-    """
+        {badge}
+    </div>"""
 
-def cost_type(category):
-    """固定費/変動費を判定"""
-    return "固定費" if category in FIXED_COST_CATEGORIES else "変動費"
+def cost_type(cat):
+    return "固定費" if cat in FIXED_COST_CATEGORIES else "変動費"
 
 # ==========================================
-# データ読み込み・前処理
+# データ読み込み
 # ==========================================
 @st.cache_data(ttl=60)
 def load_transactions():
@@ -261,8 +332,7 @@ def load_transactions():
     return df.sort_values('日付', ascending=False)
 
 def load_budgets():
-    cols = ["Category", "Budget"]
-    df = load_sheet("budgets", cols)
+    df = load_sheet("budgets", ["Category", "Budget"])
     if not df.empty:
         df['Budget'] = df['Budget'].astype(str).apply(clean_currency)
     return df
@@ -277,15 +347,80 @@ def load_assets():
     return df
 
 def load_goals():
-    cols = ["GoalName", "TargetAmount", "TargetDate"]
-    df = load_sheet("goals", cols)
+    df = load_sheet("goals", ["GoalName", "TargetAmount", "TargetDate"])
     if not df.empty:
         df['TargetAmount'] = df['TargetAmount'].astype(str).apply(clean_currency)
     return df
 
 def load_journal():
-    cols = ["Month", "Comment", "Score"]
-    return load_sheet("journal", cols)
+    return load_sheet("journal", ["Month", "Comment", "Score"])
+
+# ==========================================
+# AI分析
+# ==========================================
+def call_claude_api(prompt_text):
+    try:
+        import anthropic
+        if "anthropic_api_key" not in st.secrets:
+            return None
+        client = anthropic.Anthropic(api_key=st.secrets["anthropic_api_key"])
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2000,
+            messages=[{"role": "user", "content": prompt_text}],
+        )
+        return message.content[0].text
+    except Exception as e:
+        return f"AI分析でエラーが発生しました: {e}"
+
+def build_ai_prompt(sel_year, sel_month, df_all, df_journal):
+    df_m_exp = df_all[(df_all['年'] == sel_year) & (df_all['月'] == sel_month) & (df_all['金額_数値'] < 0)]
+    df_m_inc = df_all[(df_all['年'] == sel_year) & (df_all['月'] == sel_month) & (df_all['金額_数値'] > 0)]
+    df_y_exp = df_all[(df_all['年'] == sel_year) & (df_all['金額_数値'] < 0)]
+
+    v_inc = df_m_inc['金額_数値'].sum()
+    v_exp = df_m_exp['AbsAmount'].sum()
+    active_m = df_y_exp['月'].nunique() or 1
+
+    prompt = f"""あなたはプロのファイナンシャルプランナーです。以下の家計データを分析し、具体的で前向きなアドバイスをください。
+
+## {sel_year}年{sel_month}月の家計データ
+- 収入: ¥{v_inc:,.0f}
+- 支出: ¥{v_exp:,.0f}
+- 収支: ¥{(v_inc - v_exp):,.0f}
+
+## カテゴリ別支出（今月）
+"""
+    if not df_m_exp.empty:
+        cat_m = df_m_exp.groupby('大項目')['AbsAmount'].sum().sort_values(ascending=False)
+        for cat, val in cat_m.items():
+            avg = df_y_exp[df_y_exp['大項目'] == cat]['AbsAmount'].sum() / active_m
+            diff = val - avg
+            prompt += f"- {cat}: ¥{val:,.0f}（年平均 ¥{avg:,.0f}、差 {'+' if diff > 0 else ''}{diff:,.0f}）\n"
+
+    if not df_m_exp.empty:
+        fixed = df_m_exp[df_m_exp['費用タイプ'] == '固定費']['AbsAmount'].sum()
+        variable = df_m_exp[df_m_exp['費用タイプ'] == '変動費']['AbsAmount'].sum()
+        prompt += f"\n## 固定費 vs 変動費\n- 固定費: ¥{fixed:,.0f}\n- 変動費: ¥{variable:,.0f}\n"
+
+    if not df_journal.empty:
+        target = f"{sel_year}-{sel_month:02d}"
+        j_row = df_journal[df_journal['Month'].astype(str) == target]
+        if not j_row.empty:
+            row = j_row.iloc[-1]
+            prompt += f"\n## 本人の振り返り（満足度 {row['Score']}/10）\n{row['Comment']}\n"
+
+    prompt += """
+## 回答形式
+以下の構成で、日本語で簡潔に回答してください（合計300〜400字程度）：
+1. 今月の総評（1〜2文で端的に）
+2. 良い点（具体的に1〜2点）
+3. 改善ポイント（具体的に1〜2点、金額の目安も含めて）
+4. 来月へのアクション（すぐ実行できる具体策を1つ）
+
+※マークダウンの見出し（## や **）は使わず、番号付きの平文で簡潔に。
+"""
+    return prompt
 
 # ==========================================
 # ヘッダー
@@ -307,7 +442,7 @@ if df_all.empty:
     st.info("📊 データがありません。「データ管理」タブからCSVをアップロードするか、手入力してください。")
 
 # ==========================================
-# メインタブ
+# タブ
 # ==========================================
 tab_dash, tab_monthly, tab_data, tab_budget, tab_asset, tab_journal = st.tabs([
     "📊 ダッシュボード",
@@ -323,15 +458,13 @@ tab_dash, tab_monthly, tab_data, tab_budget, tab_asset, tab_journal = st.tabs([
 # ==========================================================================
 with tab_dash:
     if not df_all.empty:
-        # 年月セレクタ
-        col_sel1, col_sel2, _ = st.columns([1, 1, 3])
-        with col_sel1:
-            sel_year = st.selectbox("年", sorted(df_all['年'].unique(), reverse=True), key="dash_y")
-        with col_sel2:
-            months_avail = sorted(df_all[df_all['年'] == sel_year]['月'].unique(), reverse=True)
-            sel_month = st.selectbox("月", months_avail if months_avail else [today.month], key="dash_m")
+        col_s1, col_s2, col_s3 = st.columns([1, 1, 4])
+        with col_s1:
+            sel_year = st.selectbox("年", sorted(df_all['年'].unique(), reverse=True), key="dy")
+        with col_s2:
+            m_avail = sorted(df_all[df_all['年'] == sel_year]['月'].unique(), reverse=True)
+            sel_month = st.selectbox("月", m_avail if m_avail else [today.month], key="dm")
 
-        # 当月データ
         df_m = df_all[(df_all['年'] == sel_year) & (df_all['月'] == sel_month)]
         df_m_exp = df_m[df_m['金額_数値'] < 0]
         df_m_inc = df_m[df_m['金額_数値'] > 0]
@@ -339,130 +472,151 @@ with tab_dash:
         v_exp = df_m_exp['AbsAmount'].sum()
         v_bal = v_inc - v_exp
 
-        # 前年同月データ
         df_prev = df_all[(df_all['年'] == sel_year - 1) & (df_all['月'] == sel_month)]
         prev_exp = df_prev[df_prev['金額_数値'] < 0]['AbsAmount'].sum()
         prev_inc = df_prev[df_prev['金額_数値'] > 0]['金額_数値'].sum()
 
-        # 予算データ
         df_budgets = load_budgets()
         total_budget = df_budgets['Budget'].sum() if not df_budgets.empty else 0
-        budget_usage = (v_exp / total_budget * 100) if total_budget > 0 else 0
+        budget_pct = (v_exp / total_budget * 100) if total_budget > 0 else 0
 
-        # --- KPIカード ---
+        # KPIカード
         st.markdown('<div class="section-title">今月のサマリー</div>', unsafe_allow_html=True)
         k1, k2, k3, k4 = st.columns(4)
         with k1:
-            st.markdown(kpi_card("収入", format_yen(v_inc), yoy_badge(v_inc, prev_inc), "income"), unsafe_allow_html=True)
+            st.markdown(kpi("収入", fmt(v_inc), yoy_html_income(v_inc, prev_inc), "income"), unsafe_allow_html=True)
         with k2:
-            st.markdown(kpi_card("支出", format_yen(v_exp), yoy_badge(v_exp, prev_exp), "expense"), unsafe_allow_html=True)
+            st.markdown(kpi("支出", fmt(v_exp), yoy_html(v_exp, prev_exp), "expense"), unsafe_allow_html=True)
         with k3:
-            cls = "income" if v_bal >= 0 else "expense"
-            st.markdown(kpi_card("収支", format_yen_with_sign(v_bal), "", cls), unsafe_allow_html=True)
+            bal_cls = "balance-plus" if v_bal >= 0 else "balance-minus"
+            st.markdown(kpi("収支", fmt_sign(v_bal), "", bal_cls), unsafe_allow_html=True)
         with k4:
             if total_budget > 0:
-                pct_text = f'{budget_usage:.0f}% 消化'
-                cls_b = "positive" if budget_usage <= 80 else "negative"
-                sub = f'<span class="kpi-sub {cls_b}">予算 {format_yen(total_budget)} の {pct_text}</span>'
+                pct_cls = "down" if budget_pct <= 80 else "up"
+                badge = f'<span class="kpi-badge {pct_cls}">{fmt(total_budget)} 中 {budget_pct:.0f}% 消化</span>'
+                st.markdown(kpi("予算消化率", f"{budget_pct:.0f}%", badge, "budget"), unsafe_allow_html=True)
             else:
-                sub = '<span class="kpi-sub">予算未設定</span>'
-            st.markdown(kpi_card("予算消化率", f"{budget_usage:.0f}%" if total_budget > 0 else "-", sub, "budget"), unsafe_allow_html=True)
+                st.markdown(kpi("予算消化率", "—", '<span class="kpi-badge neutral">「予算管理」タブで設定 →</span>', "budget"), unsafe_allow_html=True)
 
-        # --- グラフエリア ---
-        col_chart1, col_chart2 = st.columns(2)
+        # グラフ
+        col_c1, col_c2 = st.columns(2)
 
-        with col_chart1:
+        with col_c1:
             st.markdown('<div class="section-title">月別収支推移</div>', unsafe_allow_html=True)
-            df_year = df_all[df_all['年'] == sel_year]
-            if not df_year.empty:
-                m_inc = df_year[df_year['金額_数値'] > 0].groupby('月')['金額_数値'].sum().reset_index()
-                m_inc.columns = ['月', '金額']
-                m_inc['種別'] = '収入'
-                m_exp = df_year[df_year['金額_数値'] < 0].groupby('月')['AbsAmount'].sum().reset_index()
-                m_exp.columns = ['月', '金額']
-                m_exp['種別'] = '支出'
-                df_chart = pd.concat([m_inc, m_exp])
-                fig = px.bar(
-                    df_chart, x='月', y='金額', color='種別', barmode='group',
-                    color_discrete_map={'収入': '#2ecc71', '支出': '#e74c3c'},
-                )
-                fig.update_layout(
-                    margin=dict(l=0, r=0, t=10, b=0),
-                    height=320,
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    xaxis=dict(dtick=1),
-                    yaxis=dict(title=""),
-                    plot_bgcolor='rgba(0,0,0,0)',
-                )
-                fig.update_xaxes(tickprefix="", ticksuffix="月")
-                st.plotly_chart(fig, use_container_width=True)
+            years_to_show = [sel_year]
+            if sel_year - 1 in df_all['年'].unique():
+                years_to_show = [sel_year - 1, sel_year]
 
-        with col_chart2:
+            chart_frames = []
+            for yr in years_to_show:
+                df_yr = df_all[df_all['年'] == yr]
+                m_exp = df_yr[df_yr['金額_数値'] < 0].groupby('月')['AbsAmount'].sum().reset_index()
+                m_exp.columns = ['月', '金額']
+                m_exp['種別'] = f'{yr}年 支出'
+                m_inc = df_yr[df_yr['金額_数値'] > 0].groupby('月')['金額_数値'].sum().reset_index()
+                m_inc.columns = ['月', '金額']
+                m_inc['種別'] = f'{yr}年 収入'
+                chart_frames.extend([m_inc, m_exp])
+
+            if chart_frames:
+                df_chart = pd.concat(chart_frames)
+                color_map = {}
+                for yr in years_to_show:
+                    if yr == sel_year:
+                        color_map[f'{yr}年 収入'] = '#10b981'
+                        color_map[f'{yr}年 支出'] = '#ef4444'
+                    else:
+                        color_map[f'{yr}年 収入'] = '#a7f3d0'
+                        color_map[f'{yr}年 支出'] = '#fecaca'
+
+                fig1 = px.bar(df_chart, x='月', y='金額', color='種別', barmode='group', color_discrete_map=color_map)
+                fig1.update_layout(**CHART_LAYOUT, height=320, xaxis=dict(dtick=1, title=""), yaxis=dict(title=""))
+                fig1.update_xaxes(ticksuffix="月")
+                st.plotly_chart(fig1, use_container_width=True)
+
+        with col_c2:
             st.markdown('<div class="section-title">カテゴリ別支出</div>', unsafe_allow_html=True)
             if not df_m_exp.empty:
-                cat_data = df_m_exp.groupby('大項目')['AbsAmount'].sum().reset_index()
-                cat_data = cat_data.sort_values('AbsAmount', ascending=False)
+                cat_data = df_m_exp.groupby('大項目')['AbsAmount'].sum().reset_index().sort_values('AbsAmount', ascending=False)
+                colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899',
+                          '#06b6d4', '#f97316', '#84cc16', '#6366f1', '#14b8a6', '#e11d48',
+                          '#a855f7', '#0ea5e9', '#eab308', '#64748b', '#78716c']
                 fig2 = px.pie(
-                    cat_data, values='AbsAmount', names='大項目',
-                    hole=0.45,
-                    color_discrete_sequence=px.colors.qualitative.Set3,
+                    cat_data, values='AbsAmount', names='大項目', hole=0.5,
+                    color_discrete_sequence=colors[:len(cat_data)],
                 )
-                fig2.update_layout(
-                    margin=dict(l=0, r=0, t=10, b=0),
-                    height=320,
-                    legend=dict(font=dict(size=11)),
-                    showlegend=True,
-                )
-                fig2.update_traces(textposition='inside', textinfo='percent+label', textfont_size=10)
+                fig2.update_layout(**CHART_LAYOUT, height=320, showlegend=True,
+                    legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.02, font=dict(size=10)))
+                fig2.update_traces(textposition='inside', textinfo='percent', textfont_size=11)
                 st.plotly_chart(fig2, use_container_width=True)
             else:
                 st.info("支出データがありません")
 
-        # --- 固定費 vs 変動費 ---
-        st.markdown('<div class="section-title">固定費 vs 変動費</div>', unsafe_allow_html=True)
+        # 固定費 vs 変動費
         if not df_m_exp.empty:
-            cost_summary = df_m_exp.groupby('費用タイプ')['AbsAmount'].sum().reset_index()
-            col_fv1, col_fv2 = st.columns([1, 2])
-            with col_fv1:
-                for _, row in cost_summary.iterrows():
-                    label = row['費用タイプ']
-                    val = row['AbsAmount']
-                    color = "#3498db" if label == "固定費" else "#e67e22"
-                    st.markdown(f"""
-                    <div class="kpi-card" style="border-left-color:{color};">
-                        <div class="kpi-label">{label}</div>
-                        <div class="kpi-value">{format_yen(val)}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-            with col_fv2:
-                fig_fv = px.bar(
-                    cost_summary, x='費用タイプ', y='AbsAmount', color='費用タイプ',
-                    color_discrete_map={'固定費': '#3498db', '変動費': '#e67e22'},
-                    text='AbsAmount',
-                )
-                fig_fv.update_layout(
-                    margin=dict(l=0, r=0, t=10, b=0), height=200,
-                    showlegend=False, plot_bgcolor='rgba(0,0,0,0)',
-                    xaxis=dict(title=""), yaxis=dict(title="", visible=False),
-                )
-                fig_fv.update_traces(texttemplate='¥%{text:,.0f}', textposition='outside')
-                st.plotly_chart(fig_fv, use_container_width=True)
+            st.markdown('<div class="section-title">固定費 vs 変動費</div>', unsafe_allow_html=True)
+            fixed = df_m_exp[df_m_exp['費用タイプ'] == '固定費']['AbsAmount'].sum()
+            variable = df_m_exp[df_m_exp['費用タイプ'] == '変動費']['AbsAmount'].sum()
+            total_fv = fixed + variable
+            fixed_pct = (fixed / total_fv * 100) if total_fv > 0 else 0
+            var_pct = (variable / total_fv * 100) if total_fv > 0 else 0
 
-        # --- 年間サマリー ---
+            st.markdown(f"""
+            <div class="fv-row">
+                <div class="fv-card" style="border-top: 3px solid #3b82f6;">
+                    <div class="fv-label">固定費</div>
+                    <div class="fv-value">{fmt(fixed)}</div>
+                    <div class="fv-pct">支出の {fixed_pct:.1f}%</div>
+                </div>
+                <div class="fv-card" style="border-top: 3px solid #f59e0b;">
+                    <div class="fv-label">変動費</div>
+                    <div class="fv-value">{fmt(variable)}</div>
+                    <div class="fv-pct">支出の {var_pct:.1f}%</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            fig_fv = go.Figure()
+            fig_fv.add_trace(go.Bar(y=['支出内訳'], x=[fixed], name='固定費', orientation='h', marker_color='#3b82f6', text=fmt(fixed), textposition='inside', textfont=dict(color='white', size=13)))
+            fig_fv.add_trace(go.Bar(y=['支出内訳'], x=[variable], name='変動費', orientation='h', marker_color='#f59e0b', text=fmt(variable), textposition='inside', textfont=dict(color='white', size=13)))
+            fig_fv.update_layout(**CHART_LAYOUT, height=70, barmode='stack', showlegend=False, yaxis=dict(visible=False), xaxis=dict(visible=False))
+            st.plotly_chart(fig_fv, use_container_width=True)
+
+        # 年間カテゴリサマリー
         st.markdown('<div class="section-title">年間カテゴリ別サマリー</div>', unsafe_allow_html=True)
         df_y_exp = df_all[(df_all['年'] == sel_year) & (df_all['金額_数値'] < 0)]
         if not df_y_exp.empty:
-            active_months = df_y_exp['月'].nunique() or 1
-            cat_year = df_y_exp.groupby('大項目')['AbsAmount'].sum().reset_index().sort_values('AbsAmount', ascending=False)
-            cat_year['月平均'] = cat_year['AbsAmount'] / active_months
-            cat_year['構成比'] = (cat_year['AbsAmount'] / cat_year['AbsAmount'].sum() * 100).round(1)
+            active_m = df_y_exp['月'].nunique() or 1
+            cat_y = df_y_exp.groupby('大項目')['AbsAmount'].sum().reset_index().sort_values('AbsAmount', ascending=False)
+            cat_y['月平均'] = cat_y['AbsAmount'] / active_m
+            cat_y['構成比'] = (cat_y['AbsAmount'] / cat_y['AbsAmount'].sum() * 100).round(1)
             disp = pd.DataFrame({
-                'カテゴリ': cat_year['大項目'],
-                '年間合計': cat_year['AbsAmount'].apply(lambda x: f"¥{x:,.0f}"),
-                '月平均': cat_year['月平均'].apply(lambda x: f"¥{x:,.0f}"),
-                '構成比': cat_year['構成比'].apply(lambda x: f"{x}%"),
+                'カテゴリ': cat_y['大項目'],
+                '年間合計': cat_y['AbsAmount'].apply(lambda x: f"¥{x:,.0f}"),
+                '月平均': cat_y['月平均'].apply(lambda x: f"¥{x:,.0f}"),
+                '構成比': cat_y['構成比'].apply(lambda x: f"{x}%"),
             })
             st.dataframe(disp, use_container_width=True, hide_index=True)
+
+        # AI分析
+        st.markdown('<div class="section-title">AI家計アドバイス</div>', unsafe_allow_html=True)
+        df_journal_ai = load_journal()
+
+        if "anthropic_api_key" in st.secrets:
+            if st.button("🤖 AIに今月の家計を分析してもらう", type="primary", use_container_width=True, key="ai_btn"):
+                with st.spinner("AIが分析中です..."):
+                    prompt = build_ai_prompt(sel_year, sel_month, df_all, df_journal_ai)
+                    result = call_claude_api(prompt)
+                    if result:
+                        st.markdown(f'<div class="ai-result">{result}</div>', unsafe_allow_html=True)
+                    else:
+                        st.error("APIキーの設定を確認してください")
+        else:
+            st.caption("💡 Anthropic APIキーを設定するとAI分析が使えます。現在はプロンプトコピー方式です。")
+            if st.button("📋 AI分析用プロンプトを生成", key="ai_copy"):
+                prompt = build_ai_prompt(sel_year, sel_month, df_all, df_journal_ai)
+                st.code(prompt, language="text")
+                st.caption("↑ コピーしてChatGPTやClaudeに貼り付けてください")
     else:
         st.info("「データ管理」タブからデータを登録してください")
 
@@ -472,12 +626,12 @@ with tab_dash:
 # ==========================================================================
 with tab_monthly:
     if not df_all.empty:
-        col_s1, col_s2, _ = st.columns([1, 1, 3])
+        col_s1, col_s2, _ = st.columns([1, 1, 4])
         with col_s1:
-            my = st.selectbox("年", sorted(df_all['年'].unique(), reverse=True), key="month_y")
+            my = st.selectbox("年", sorted(df_all['年'].unique(), reverse=True), key="my")
         with col_s2:
             m_avail = sorted(df_all[df_all['年'] == my]['月'].unique(), reverse=True)
-            mm = st.selectbox("月", m_avail if m_avail else [1], key="month_m")
+            mm = st.selectbox("月", m_avail if m_avail else [1], key="mm")
 
         df_month = df_all[(df_all['年'] == my) & (df_all['月'] == mm)]
         df_mexp = df_month[df_month['金額_数値'] < 0]
@@ -485,16 +639,15 @@ with tab_monthly:
         mv_inc = df_minc['金額_数値'].sum()
         mv_exp = df_mexp['AbsAmount'].sum()
 
-        # KPI
         mk1, mk2, mk3 = st.columns(3)
         with mk1:
-            st.markdown(kpi_card("収入", format_yen(mv_inc), "", "income"), unsafe_allow_html=True)
+            st.markdown(kpi("収入", fmt(mv_inc), "", "income"), unsafe_allow_html=True)
         with mk2:
-            st.markdown(kpi_card("支出", format_yen(mv_exp), "", "expense"), unsafe_allow_html=True)
+            st.markdown(kpi("支出", fmt(mv_exp), "", "expense"), unsafe_allow_html=True)
         with mk3:
-            st.markdown(kpi_card("収支", format_yen_with_sign(mv_inc - mv_exp), "", "balance"), unsafe_allow_html=True)
+            cls = "balance-plus" if (mv_inc - mv_exp) >= 0 else "balance-minus"
+            st.markdown(kpi("収支", fmt_sign(mv_inc - mv_exp), "", cls), unsafe_allow_html=True)
 
-        # --- 今月 vs 年平均 ---
         st.markdown('<div class="section-title">カテゴリ別：今月 vs 年平均</div>', unsafe_allow_html=True)
         if not df_mexp.empty:
             df_y_all_exp = df_all[(df_all['年'] == my) & (df_all['金額_数値'] < 0)]
@@ -509,7 +662,6 @@ with tab_monthly:
             merged['差額'] = merged['今月'] - merged['年平均']
             merged = merged.sort_values('今月', ascending=False)
 
-            # 前年同月データ
             df_prev_m = df_all[(df_all['年'] == my - 1) & (df_all['月'] == mm) & (df_all['金額_数値'] < 0)]
             if not df_prev_m.empty:
                 prev_cat = df_prev_m.groupby('大項目')['AbsAmount'].sum().reset_index()
@@ -530,21 +682,12 @@ with tab_monthly:
                 disp_m['前年同月'] = merged['前年同月'].apply(lambda x: f"¥{x:,.0f}")
             st.dataframe(disp_m, use_container_width=True, hide_index=True)
 
-            # チャート
-            chart_data = merged[['カテゴリ', '今月', '年平均']].melt(id_vars='カテゴリ', var_name='種別', value_name='金額')
-            fig_comp = px.bar(
-                chart_data, x='カテゴリ', y='金額', color='種別', barmode='group',
-                color_discrete_map={'今月': '#3498db', '年平均': '#bdc3c7'},
-            )
-            fig_comp.update_layout(
-                margin=dict(l=0, r=0, t=10, b=0), height=280,
-                legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                plot_bgcolor='rgba(0,0,0,0)',
-                xaxis=dict(title=""), yaxis=dict(title=""),
-            )
-            st.plotly_chart(fig_comp, use_container_width=True)
+            chart_d = merged[['カテゴリ', '今月', '年平均']].melt(id_vars='カテゴリ', var_name='種別', value_name='金額')
+            fig_c = px.bar(chart_d, x='カテゴリ', y='金額', color='種別', barmode='group',
+                           color_discrete_map={'今月': '#3b82f6', '年平均': '#cbd5e1'})
+            fig_c.update_layout(**CHART_LAYOUT, height=280, xaxis=dict(title=""), yaxis=dict(title=""))
+            st.plotly_chart(fig_c, use_container_width=True)
 
-        # --- 支出明細 ---
         st.markdown('<div class="section-title">支出明細</div>', unsafe_allow_html=True)
         if not df_mexp.empty:
             detail = df_mexp[['日付', '内容', 'AbsAmount', '大項目', '中項目', '保有金融機関', '費用タイプ']].copy()
@@ -552,35 +695,24 @@ with tab_monthly:
             detail['金額'] = detail['AbsAmount'].apply(lambda x: f"¥{x:,.0f}")
             detail = detail.rename(columns={'保有金融機関': '決済元'})
 
-            # フィルタ
             fc1, fc2 = st.columns(2)
             with fc1:
-                cat_filter = st.multiselect("カテゴリ絞り込み", options=detail['大項目'].unique(), key="detail_cat")
+                cat_f = st.multiselect("カテゴリで絞込", options=sorted(detail['大項目'].unique()), key="dc")
             with fc2:
-                type_filter = st.multiselect("費用タイプ", options=["固定費", "変動費"], key="detail_type")
+                type_f = st.multiselect("費用タイプで絞込", options=["固定費", "変動費"], key="dt")
+            if cat_f:
+                detail = detail[detail['大項目'].isin(cat_f)]
+            if type_f:
+                detail = detail[detail['費用タイプ'].isin(type_f)]
 
-            if cat_filter:
-                detail = detail[detail['大項目'].isin(cat_filter)]
-            if type_filter:
-                detail = detail[detail['費用タイプ'].isin(type_filter)]
+            st.dataframe(detail[['日付', '内容', '金額', '大項目', '費用タイプ', '決済元']], use_container_width=True, hide_index=True)
 
-            st.dataframe(
-                detail[['日付', '内容', '金額', '大項目', '費用タイプ', '決済元']],
-                use_container_width=True, hide_index=True,
-            )
-        else:
-            st.info("この月の支出データはありません")
-
-        # --- 収入明細 ---
         if not df_minc.empty:
             with st.expander("💵 収入明細を表示"):
-                inc_detail = df_minc[['日付', '内容', '金額_数値', '大項目', '保有金融機関']].copy()
-                inc_detail['日付'] = inc_detail['日付'].dt.strftime('%m/%d')
-                inc_detail['金額'] = inc_detail['金額_数値'].apply(lambda x: f"¥{x:,.0f}")
-                st.dataframe(
-                    inc_detail[['日付', '内容', '金額', '大項目', '保有金融機関']],
-                    use_container_width=True, hide_index=True,
-                )
+                inc_d = df_minc[['日付', '内容', '金額_数値', '大項目', '保有金融機関']].copy()
+                inc_d['日付'] = inc_d['日付'].dt.strftime('%m/%d')
+                inc_d['金額'] = inc_d['金額_数値'].apply(lambda x: f"¥{x:,.0f}")
+                st.dataframe(inc_d[['日付', '内容', '金額', '大項目', '保有金融機関']], use_container_width=True, hide_index=True)
     else:
         st.info("データがありません")
 
@@ -596,7 +728,6 @@ with tab_data:
     if csv_file:
         if st.button("📥 データを取り込む", type="primary", use_container_width=True):
             try:
-                # エンコーディングを自動判定
                 try:
                     df_new = pd.read_csv(csv_file, encoding='shift-jis')
                 except:
@@ -616,8 +747,8 @@ with tab_data:
 
                 df_current = load_transactions()
                 if not df_current.empty:
-                    common_cols = [c for c in existing if c in df_current.columns]
-                    df_merged = pd.concat([df_current[common_cols], df_new_save[common_cols]], ignore_index=True)
+                    common = [c for c in existing if c in df_current.columns]
+                    df_merged = pd.concat([df_current[common], df_new_save[common]], ignore_index=True)
                     df_merged = df_merged.drop_duplicates(subset=['日付', '内容', '金額（円）'], keep='last')
                     df_merged['日付'] = pd.to_datetime(df_merged['日付'])
                     df_merged = df_merged.sort_values('日付', ascending=False)
@@ -648,49 +779,34 @@ with tab_data:
         submitted = st.form_submit_button("✅ 追加する", type="primary", use_container_width=True)
         if submitted and m_amount > 0:
             try:
-                final_amount = -m_amount if m_type == "支出" else m_amount
+                final = -m_amount if m_type == "支出" else m_amount
                 new_row = pd.DataFrame({
-                    "日付": [pd.to_datetime(m_date)],
-                    "内容": [m_desc],
-                    "金額（円）": [str(final_amount)],
-                    "保有金融機関": ["手入力"],
-                    "大項目": [m_cat],
-                    "中項目": [m_sub],
-                    "年": [m_date.year],
-                    "月": [m_date.month],
-                    "金額_数値": [final_amount],
-                    "AbsAmount": [abs(final_amount)],
+                    "日付": [pd.to_datetime(m_date)], "内容": [m_desc], "金額（円）": [str(final)],
+                    "保有金融機関": ["手入力"], "大項目": [m_cat], "中項目": [m_sub],
+                    "年": [m_date.year], "月": [m_date.month], "金額_数値": [final], "AbsAmount": [abs(final)],
                 })
                 df_current = load_transactions()
                 if not df_current.empty:
                     cols = [c for c in new_row.columns if c in df_current.columns]
-                    df_merged = pd.concat([df_current[cols], new_row[cols]], ignore_index=True)
-                    df_merged = df_merged.sort_values('日付', ascending=False)
+                    df_merged = pd.concat([df_current[cols], new_row[cols]], ignore_index=True).sort_values('日付', ascending=False)
                 else:
                     df_merged = new_row
                 save_sheet(df_merged, "transactions")
-                st.success(f"✅ {m_desc}（{format_yen(abs(final_amount))}）を追加しました")
+                st.success(f"✅ {m_desc}（{fmt(abs(final))}）を追加しました")
                 st.cache_data.clear()
                 st.rerun()
             except Exception as e:
                 st.error(f"エラー: {e}")
 
-    # --- データ件数・最終更新 ---
     if not df_all.empty:
         st.markdown("---")
         st.markdown('<div class="section-title">登録済みデータ</div>', unsafe_allow_html=True)
-        c_info1, c_info2, c_info3 = st.columns(3)
-        c_info1.metric("総件数", f"{len(df_all)}件")
-        oldest = df_all['日付'].min().strftime('%Y/%m/%d')
-        newest = df_all['日付'].max().strftime('%Y/%m/%d')
-        c_info2.metric("期間", f"{oldest} 〜")
-        c_info3.metric("最新データ", newest)
-
-        # メトリクスを再表示（CSS非表示を上書き）
-        st.markdown("""
-        <style>
-            [data-testid="stMetric"] { display: flex !important; }
-        </style>
+        st.markdown(f"""
+        <div class="fv-row">
+            <div class="fv-card"><div class="fv-label">総件数</div><div class="fv-value">{len(df_all)}件</div></div>
+            <div class="fv-card"><div class="fv-label">期間</div><div class="fv-value">{df_all['日付'].min().strftime('%Y/%m')} 〜 {df_all['日付'].max().strftime('%Y/%m')}</div></div>
+            <div class="fv-card"><div class="fv-label">最新データ</div><div class="fv-value">{df_all['日付'].max().strftime('%Y/%m/%d')}</div></div>
+        </div>
         """, unsafe_allow_html=True)
 
 
@@ -698,73 +814,62 @@ with tab_data:
 # Tab 4: 予算管理
 # ==========================================================================
 with tab_budget:
-    st.markdown('<div class="section-title">カテゴリ別月次予算</div>', unsafe_allow_html=True)
-    st.caption("カテゴリごとの月次予算を設定し、消化状況を確認できます")
+    st.markdown('<div class="section-title">カテゴリ別月次予算の設定</div>', unsafe_allow_html=True)
+    st.caption("カテゴリごとの月次予算を設定し、今月の消化状況を確認できます")
 
     df_budgets = load_budgets()
 
-    # 予算設定フォーム
     with st.expander("⚙️ 予算を設定・変更する", expanded=df_budgets.empty):
         with st.form("budget_form"):
-            st.caption("各カテゴリの月次予算額を入力してください（0は未設定扱い）")
-            budget_values = {}
-            cols_b = st.columns(3)
+            st.caption("月次予算額を入力（0＝未設定）")
+            bvals = {}
+            bcols = st.columns(3)
             for i, cat in enumerate(CATEGORY_OPTIONS):
                 existing = 0
                 if not df_budgets.empty:
                     match = df_budgets[df_budgets['Category'] == cat]
                     if not match.empty:
                         existing = int(match.iloc[0]['Budget'])
-                with cols_b[i % 3]:
-                    budget_values[cat] = st.number_input(cat, value=existing, step=1000, min_value=0, key=f"bud_{cat}")
-
+                with bcols[i % 3]:
+                    bvals[cat] = st.number_input(cat, value=existing, step=1000, min_value=0, key=f"b_{cat}")
             if st.form_submit_button("💾 予算を保存", type="primary", use_container_width=True):
-                rows = [{"Category": k, "Budget": v} for k, v in budget_values.items() if v > 0]
-                df_new_bud = pd.DataFrame(rows)
-                save_sheet(df_new_bud, "budgets")
-                st.success("予算を保存しました")
+                rows = [{"Category": k, "Budget": v} for k, v in bvals.items() if v > 0]
+                save_sheet(pd.DataFrame(rows), "budgets")
+                st.success("保存しました")
                 st.rerun()
 
-    # 予算消化状況
     if not df_budgets.empty and not df_all.empty:
         st.markdown('<div class="section-title">今月の予算消化状況</div>', unsafe_allow_html=True)
 
-        # 当月の支出
-        cur_y, cur_m = today.year, today.month
-        df_cur_exp = df_all[(df_all['年'] == cur_y) & (df_all['月'] == cur_m) & (df_all['金額_数値'] < 0)]
-        cur_cat_spend = {}
-        if not df_cur_exp.empty:
-            cur_cat_spend = df_cur_exp.groupby('大項目')['AbsAmount'].sum().to_dict()
+        cur_exp = df_all[(df_all['年'] == today.year) & (df_all['月'] == today.month) & (df_all['金額_数値'] < 0)]
+        cat_spend = cur_exp.groupby('大項目')['AbsAmount'].sum().to_dict() if not cur_exp.empty else {}
 
         for _, brow in df_budgets.iterrows():
             cat = brow['Category']
             budget = brow['Budget']
-            spent = cur_cat_spend.get(cat, 0)
+            spent = cat_spend.get(cat, 0)
             remaining = budget - spent
             pct = min(spent / budget * 100, 100) if budget > 0 else 0
 
-            if pct <= 60:
-                bar_color = "#2ecc71"
-            elif pct <= 85:
-                bar_color = "#f39c12"
-            else:
-                bar_color = "#e74c3c"
+            if pct <= 60: bar_col = "#10b981"
+            elif pct <= 85: bar_col = "#f59e0b"
+            else: bar_col = "#ef4444"
 
-            remain_text = format_yen(remaining) if remaining >= 0 else f"<b style='color:#e74c3c'>{format_yen(remaining)} 超過</b>"
+            remain_html = fmt(remaining) if remaining >= 0 else f"<b style='color:#ef4444'>超過 {fmt(abs(remaining))}</b>"
 
             st.markdown(f"""
-            <div style="background:white; border-radius:10px; padding:12px 16px; margin-bottom:10px;
-                        box-shadow:0 1px 4px rgba(0,0,0,0.05);">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                    <span style="font-weight:600; color:#333;">{cat}</span>
-                    <span style="font-size:0.85rem; color:#666;">{format_yen(spent)} / {format_yen(budget)}</span>
+            <div style="background:#fff; border-radius:12px; padding:14px 18px; margin-bottom:8px;
+                        box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-weight:700; color:#0f172a; font-size:0.95rem;">{cat}</span>
+                    <span style="font-size:0.82rem; color:#64748b;">{fmt(spent)} / {fmt(budget)}</span>
                 </div>
                 <div class="budget-bar-bg">
-                    <div class="budget-bar-fill" style="width:{pct}%; background:{bar_color};"></div>
+                    <div class="budget-bar-fill" style="width:{pct}%; background:{bar_col};"></div>
                 </div>
-                <div style="display:flex; justify-content:space-between; margin-top:4px;">
-                    <span style="font-size:0.75rem; color:#999;">{pct:.0f}%</span>
-                    <span style="font-size:0.75rem;">残り: {remain_text}</span>
+                <div style="display:flex; justify-content:space-between; margin-top:3px;">
+                    <span style="font-size:0.75rem; color:#94a3b8;">{pct:.0f}%</span>
+                    <span style="font-size:0.78rem;">残り: {remain_html}</span>
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -776,16 +881,15 @@ with tab_budget:
 # Tab 5: 資産・ゴール
 # ==========================================================================
 with tab_asset:
-    st.markdown('<div class="section-title">資産入力</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">資産額の入力</div>', unsafe_allow_html=True)
 
-    with st.expander("💰 資産額を入力する"):
+    with st.expander("💰 資産額を入力・更新する"):
         with st.form("asset_form"):
             ac1, ac2 = st.columns(2)
             with ac1:
-                a_year = st.selectbox("年", list(range(today.year - 5, today.year + 6)), index=5, key="a_y")
+                a_year = st.selectbox("年", list(range(today.year - 5, today.year + 6)), index=5, key="ay")
             with ac2:
-                a_month = st.selectbox("月", list(range(1, 13)), index=today.month - 1, key="a_m")
-
+                a_month = st.selectbox("月", list(range(1, 13)), index=today.month - 1, key="am")
             ac3, ac4 = st.columns(2)
             with ac3:
                 v_bank = st.number_input("銀行・現金", value=0, step=10000, key="ab")
@@ -793,203 +897,133 @@ with tab_asset:
             with ac4:
                 v_ideco = st.number_input("iDeCo", value=0, step=10000, key="ai")
                 v_other = st.number_input("その他", value=0, step=10000, key="ao")
-
             if st.form_submit_button("💾 保存", type="primary", use_container_width=True):
-                month_str = f"{a_year}-{a_month:02d}"
-                df_assets = load_assets()
-                if not df_assets.empty:
-                    df_assets['Month'] = df_assets['Month'].astype(str)
-                    df_assets = df_assets[df_assets['Month'] != month_str]
+                ms = f"{a_year}-{a_month:02d}"
+                df_a = load_assets()
+                if not df_a.empty:
+                    df_a['Month'] = df_a['Month'].astype(str)
+                    df_a = df_a[df_a['Month'] != ms]
                 total_v = v_bank + v_sec + v_ideco + v_other
-                new_a = pd.DataFrame({
-                    "Month": [month_str], "Bank": [v_bank], "Securities": [v_sec],
-                    "iDeCo": [v_ideco], "Other": [v_other], "Total": [total_v]
-                })
-                df_assets = pd.concat([df_assets, new_a], ignore_index=True).sort_values('Month')
-                save_sheet(df_assets, "assets")
+                new_a = pd.DataFrame({"Month": [ms], "Bank": [v_bank], "Securities": [v_sec], "iDeCo": [v_ideco], "Other": [v_other], "Total": [total_v]})
+                df_a = pd.concat([df_a, new_a], ignore_index=True).sort_values('Month')
+                save_sheet(df_a, "assets")
                 st.success("保存しました")
                 st.rerun()
 
-    # --- 資産推移 ---
     df_assets = load_assets()
     if not df_assets.empty:
         st.markdown('<div class="section-title">資産推移</div>', unsafe_allow_html=True)
 
         latest_total = df_assets.iloc[-1]['Total']
-        st.markdown(kpi_card("現在の総資産", format_yen(latest_total), "", "asset"), unsafe_allow_html=True)
+        if len(df_assets) >= 2:
+            prev_total = df_assets.iloc[-2]['Total']
+            diff = latest_total - prev_total
+            diff_badge = f'<span class="kpi-badge {"down" if diff >= 0 else "up"}">前月比 {fmt_sign(diff)}</span>'
+        else:
+            diff_badge = ""
 
-        # 積み上げエリアチャート
-        fig_asset = go.Figure()
-        colors = {'Bank': '#3498db', 'Securities': '#2ecc71', 'iDeCo': '#e67e22', 'Other': '#9b59b6'}
-        labels = {'Bank': '銀行・現金', 'Securities': '証券', 'iDeCo': 'iDeCo', 'Other': 'その他'}
-        for col in ['Bank', 'Securities', 'iDeCo', 'Other']:
-            fig_asset.add_trace(go.Scatter(
+        st.markdown(kpi("現在の総資産", fmt(latest_total), diff_badge, "asset"), unsafe_allow_html=True)
+
+        fig_a = go.Figure()
+        conf = [('Bank', '銀行・現金', '#3b82f6'), ('Securities', '証券', '#10b981'), ('iDeCo', 'iDeCo', '#f59e0b'), ('Other', 'その他', '#8b5cf6')]
+        for col, name, color in conf:
+            fig_a.add_trace(go.Scatter(
                 x=df_assets['Month'], y=df_assets[col],
-                mode='lines', stackgroup='one',
-                name=labels[col], line=dict(width=0.5),
-                fillcolor=colors[col],
+                mode='lines', stackgroup='one', name=name,
+                line=dict(width=0.5), fillcolor=color,
             ))
-        fig_asset.update_layout(
-            margin=dict(l=0, r=0, t=10, b=0), height=350,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02),
-            xaxis=dict(type='category', title=""),
-            yaxis=dict(title=""),
-            plot_bgcolor='rgba(0,0,0,0)',
-        )
-        st.plotly_chart(fig_asset, use_container_width=True)
+        fig_a.update_layout(**CHART_LAYOUT, height=350, xaxis=dict(type='category', title=""), yaxis=dict(title=""))
+        st.plotly_chart(fig_a, use_container_width=True)
 
-        # 資産テーブル
         with st.expander("📋 詳細データ"):
             disp_a = df_assets.copy()
             for c in ['Bank', 'Securities', 'iDeCo', 'Other', 'Total']:
                 disp_a[c] = disp_a[c].apply(lambda x: f"¥{x:,.0f}")
-            disp_a = disp_a.rename(columns={
-                'Month': '月', 'Bank': '銀行・現金', 'Securities': '証券',
-                'iDeCo': 'iDeCo', 'Other': 'その他', 'Total': '合計'
-            })
+            disp_a.columns = ['月', '銀行・現金', '証券', 'iDeCo', 'その他', '合計']
             st.dataframe(disp_a, use_container_width=True, hide_index=True)
 
-        # --- ゴール設定 ---
         st.markdown('<div class="section-title">資産ゴール設定</div>', unsafe_allow_html=True)
-
         df_goals = load_goals()
 
         with st.expander("🎯 ゴールを設定・変更する"):
             with st.form("goal_form"):
-                g_name = st.text_input("ゴール名（例：老後資金、住宅購入頭金）", value="資産目標")
+                g_name = st.text_input("ゴール名", value="資産目標")
                 g_amount = st.number_input("目標金額（円）", value=10000000, step=1000000, min_value=0)
                 g_date = st.date_input("目標達成日", value=datetime(today.year + 10, 1, 1))
-
-                if st.form_submit_button("🎯 ゴールを保存", type="primary", use_container_width=True):
-                    df_goals_new = pd.DataFrame({
-                        "GoalName": [g_name],
-                        "TargetAmount": [g_amount],
-                        "TargetDate": [g_date.strftime('%Y-%m-%d')],
-                    })
-                    # 同名ゴールは上書き
+                if st.form_submit_button("🎯 保存", type="primary", use_container_width=True):
+                    new_g = pd.DataFrame({"GoalName": [g_name], "TargetAmount": [g_amount], "TargetDate": [g_date.strftime('%Y-%m-%d')]})
                     if not df_goals.empty:
                         df_goals = df_goals[df_goals['GoalName'] != g_name]
-                    df_goals = pd.concat([df_goals, df_goals_new], ignore_index=True)
+                    df_goals = pd.concat([df_goals, new_g], ignore_index=True)
                     save_sheet(df_goals, "goals")
-                    st.success("ゴールを保存しました")
+                    st.success("保存しました")
                     st.rerun()
 
-        # --- 予測グラフ ---
         if not df_goals.empty and len(df_assets) >= 2:
             for _, goal in df_goals.iterrows():
                 g_name = goal['GoalName']
                 g_target = goal['TargetAmount']
-                g_date = goal['TargetDate']
+                g_date_str = str(goal['TargetDate'])
 
-                st.markdown(f'<div class="section-title">🎯 {g_name}への道筋</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="section-title">🎯 {g_name}</div>', unsafe_allow_html=True)
 
-                # 進捗率
                 progress = min(latest_total / g_target * 100, 100) if g_target > 0 else 0
                 remaining = max(g_target - latest_total, 0)
 
                 pc1, pc2, pc3 = st.columns(3)
                 with pc1:
-                    st.markdown(kpi_card("目標金額", format_yen(g_target), f'<span class="kpi-sub">期限: {g_date}</span>', "asset"), unsafe_allow_html=True)
+                    st.markdown(kpi("目標金額", fmt(g_target), f'<span class="kpi-badge neutral">期限: {g_date_str}</span>', "asset"), unsafe_allow_html=True)
                 with pc2:
-                    bar_col = "#2ecc71" if progress >= 60 else "#f39c12" if progress >= 30 else "#e74c3c"
-                    st.markdown(f"""
-                    <div class="kpi-card asset">
+                    bar_c = "#10b981" if progress >= 60 else "#f59e0b" if progress >= 30 else "#ef4444"
+                    st.markdown(f"""<div class="kpi-card asset">
                         <div class="kpi-label">達成率</div>
                         <div class="kpi-value">{progress:.1f}%</div>
-                        <div class="budget-bar-bg" style="height:8px;">
-                            <div class="budget-bar-fill" style="width:{progress}%; background:{bar_col};"></div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                        <div class="budget-bar-bg"><div class="budget-bar-fill" style="width:{progress}%;background:{bar_c};"></div></div>
+                    </div>""", unsafe_allow_html=True)
                 with pc3:
-                    st.markdown(kpi_card("残り", format_yen(remaining), "", ""), unsafe_allow_html=True)
+                    st.markdown(kpi("残り", fmt(remaining), "", ""), unsafe_allow_html=True)
 
-                # 予測線を含むチャート
-                # 月次増加額を計算（直近データから）
-                if len(df_assets) >= 2:
-                    totals = df_assets['Total'].values
-                    monthly_changes = np.diff(totals)
-                    avg_monthly_change = np.mean(monthly_changes) if len(monthly_changes) > 0 else 0
+                totals = df_assets['Total'].values
+                avg_change = np.mean(np.diff(totals))
+                last_month = df_assets.iloc[-1]['Month']
 
-                    # 将来予測を生成
-                    last_month = df_assets.iloc[-1]['Month']
-                    last_val = latest_total
+                try:
+                    target_dt = datetime.strptime(g_date_str[:10], '%Y-%m-%d')
+                except:
+                    target_dt = datetime(today.year + 5, 12, 31)
 
-                    try:
-                        target_dt = datetime.strptime(str(g_date), '%Y-%m-%d')
-                    except:
-                        target_dt = datetime(today.year + 5, 12, 31)
+                months_ahead = min(max((target_dt.year - today.year) * 12 + (target_dt.month - today.month), 12), 240)
 
-                    months_ahead = max(
-                        (target_dt.year - today.year) * 12 + (target_dt.month - today.month),
-                        12
-                    )
-                    months_ahead = min(months_ahead, 240)  # 最大20年
+                future_m, future_v = [], []
+                cur = latest_total
+                base = datetime.strptime(last_month + "-01", '%Y-%m-%d')
+                for i in range(1, months_ahead + 1):
+                    nd = base + relativedelta(months=i)
+                    future_m.append(nd.strftime('%Y-%m'))
+                    cur += avg_change
+                    future_v.append(max(cur, 0))
 
-                    future_months = []
-                    future_vals = []
-                    current = last_val
-                    base_date = datetime.strptime(last_month + "-01", '%Y-%m-%d')
+                fig_g = go.Figure()
+                fig_g.add_trace(go.Scatter(x=df_assets['Month'].tolist(), y=df_assets['Total'].tolist(),
+                    mode='lines+markers', name='実績', line=dict(color='#3b82f6', width=3), marker=dict(size=6)))
+                fig_g.add_trace(go.Scatter(x=[last_month] + future_m, y=[latest_total] + future_v,
+                    mode='lines', name=f'予測（月 {fmt_sign(avg_change)}）', line=dict(color='#3b82f6', width=2, dash='dash')))
+                fig_g.add_hline(y=g_target, line_dash="dot", line_color="#ef4444",
+                    annotation_text=f"目標: {fmt(g_target)}", annotation_position="top left")
+                fig_g.update_layout(**CHART_LAYOUT, height=380,
+                    xaxis=dict(type='category', title="", tickangle=-45, dtick=max(1, len(future_m) // 12)),
+                    yaxis=dict(title=""))
+                st.plotly_chart(fig_g, use_container_width=True)
 
-                    for i in range(1, months_ahead + 1):
-                        next_date = base_date + relativedelta(months=i)
-                        future_months.append(next_date.strftime('%Y-%m'))
-                        current += avg_monthly_change
-                        future_vals.append(max(current, 0))
-
-                    # チャート描画
-                    fig_goal = go.Figure()
-
-                    # 実績
-                    fig_goal.add_trace(go.Scatter(
-                        x=df_assets['Month'].tolist(),
-                        y=df_assets['Total'].tolist(),
-                        mode='lines+markers',
-                        name='実績',
-                        line=dict(color='#3498db', width=3),
-                        marker=dict(size=6),
-                    ))
-
-                    # 予測
-                    pred_x = [df_assets.iloc[-1]['Month']] + future_months
-                    pred_y = [latest_total] + future_vals
-                    fig_goal.add_trace(go.Scatter(
-                        x=pred_x, y=pred_y,
-                        mode='lines',
-                        name=f'予測（月平均 {format_yen_with_sign(avg_monthly_change)}）',
-                        line=dict(color='#3498db', width=2, dash='dash'),
-                    ))
-
-                    # 目標ライン
-                    fig_goal.add_hline(
-                        y=g_target,
-                        line_dash="dot",
-                        line_color="#e74c3c",
-                        annotation_text=f"目標: {format_yen(g_target)}",
-                        annotation_position="top left",
-                    )
-
-                    fig_goal.update_layout(
-                        margin=dict(l=0, r=0, t=10, b=0), height=380,
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                        xaxis=dict(type='category', title="", tickangle=-45,
-                                   dtick=max(1, len(pred_x) // 12)),
-                        yaxis=dict(title=""),
-                        plot_bgcolor='rgba(0,0,0,0)',
-                    )
-                    st.plotly_chart(fig_goal, use_container_width=True)
-
-                    # 到達予想
-                    if avg_monthly_change > 0 and remaining > 0:
-                        months_to_goal = remaining / avg_monthly_change
-                        est_date = today + relativedelta(months=int(months_to_goal))
-                        st.info(f"📅 現在のペース（月平均 {format_yen_with_sign(avg_monthly_change)}）で続けると、**{est_date.strftime('%Y年%m月')}** 頃に目標達成の見込みです")
-                    elif avg_monthly_change <= 0 and remaining > 0:
-                        st.warning("⚠️ 現在のペースでは資産が増加していません。収支の見直しを検討しましょう")
-                    elif remaining <= 0:
-                        st.success("🎉 目標を達成しています！")
+                if avg_change > 0 and remaining > 0:
+                    est = today + relativedelta(months=int(remaining / avg_change))
+                    st.info(f"📅 現在のペース（月平均 {fmt_sign(avg_change)}）で続けると、**{est.strftime('%Y年%m月')}** 頃に目標達成の見込みです")
+                elif avg_change <= 0 and remaining > 0:
+                    st.warning("⚠️ 現在のペースでは資産が増加していません。収支の見直しを検討しましょう")
+                elif remaining <= 0:
+                    st.success("🎉 目標を達成しています！")
         elif df_goals.empty:
-            st.info("ゴールを設定すると、予測グラフが表示されます")
+            st.info("ゴールを設定すると予測グラフが表示されます")
         else:
             st.info("予測には2ヶ月以上の資産データが必要です")
     else:
@@ -1001,7 +1035,7 @@ with tab_asset:
 # ==========================================================================
 with tab_journal:
     st.markdown('<div class="section-title">月次振り返り</div>', unsafe_allow_html=True)
-    st.caption("毎月の家計に対する感想や反省、気づきを記録しましょう。AI評価でこのコメントも反映されます。")
+    st.caption("毎月の感想や気づきを記録。AI分析にもこのコメントが反映されます。")
 
     df_journal = load_journal()
 
@@ -1013,13 +1047,12 @@ with tab_journal:
             j_score = st.slider("満足度（1〜10）", 1, 10, 5)
         j_comment = st.text_area(
             "コメント",
-            placeholder="例：今月は外食が多かった。来月は自炊を増やしたい。子どもの習い事が始まって固定費が増えた。",
+            placeholder="例：今月は外食が多かった。来月は自炊を増やしたい。",
             height=120,
         )
         if st.form_submit_button("💾 保存する", type="primary", use_container_width=True):
             if j_comment.strip():
                 new_j = pd.DataFrame({"Month": [j_month], "Comment": [j_comment], "Score": [j_score]})
-                # 同月上書き
                 if not df_journal.empty:
                     df_journal['Month'] = df_journal['Month'].astype(str)
                     df_journal = df_journal[df_journal['Month'] != j_month]
@@ -1030,58 +1063,23 @@ with tab_journal:
             else:
                 st.warning("コメントを入力してください")
 
-    # 過去の振り返り一覧
     if not df_journal.empty:
         st.markdown('<div class="section-title">過去の振り返り</div>', unsafe_allow_html=True)
-        df_j_disp = df_journal.copy()
-        df_j_disp = df_j_disp.sort_values('Month', ascending=False)
-        for _, row in df_j_disp.iterrows():
+        for _, row in df_journal.sort_values('Month', ascending=False).iterrows():
             score = int(row['Score']) if str(row['Score']).isdigit() else 5
-            stars = "⭐" * score + "☆" * (10 - score)
+            score_colors = ['#ef4444'] * 3 + ['#f59e0b'] * 4 + ['#10b981'] * 3
+            dots = ""
+            for i in range(10):
+                c = score_colors[i] if i < score else '#e2e8f0'
+                dots += f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{c};margin:0 1px;"></span>'
             st.markdown(f"""
-            <div style="background:white; border-radius:10px; padding:14px 18px; margin-bottom:10px;
-                        box-shadow:0 1px 4px rgba(0,0,0,0.05); border-left:4px solid #3498db;">
+            <div class="journal-card">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span style="font-weight:700; color:#1a1a2e;">{row['Month']}</span>
-                    <span style="font-size:0.8rem;">{stars}</span>
+                    <span class="journal-month">{row['Month']}</span>
+                    <span class="journal-score">{dots} {score}/10</span>
                 </div>
-                <p style="margin:8px 0 0; color:#555; font-size:0.9rem; line-height:1.6;">{row['Comment']}</p>
+                <div class="journal-comment">{row['Comment']}</div>
             </div>
             """, unsafe_allow_html=True)
     else:
         st.info("まだ振り返りが登録されていません")
-
-    # --- AI分析用エクスポート（将来API化の土台） ---
-    st.markdown("---")
-    st.markdown('<div class="section-title">🤖 AI分析用データ（準備中）</div>', unsafe_allow_html=True)
-    st.caption("今後のアップデートで、ボタン一つでAIが家計の評価・アドバイスを生成する機能を追加予定です。")
-
-    if not df_all.empty and not df_journal.empty:
-        sel_y_ai = st.selectbox("分析対象年", sorted(df_all['年'].unique(), reverse=True), key="ai_y")
-        if st.button("📋 AI用プロンプトを生成（コピー用）"):
-            df_y_exp_ai = df_all[(df_all['年'] == sel_y_ai) & (df_all['金額_数値'] < 0)]
-            df_j_ai = df_journal[df_journal['Month'].astype(str).str.startswith(str(sel_y_ai))]
-
-            prompt = f"""あなたはプロのファイナンシャルプランナー兼ライフコーチです。
-以下は{sel_y_ai}年の家計データと月次振り返りです。
-
-【カテゴリ別年間支出】
-"""
-            if not df_y_exp_ai.empty:
-                cat_summary = df_y_exp_ai.groupby('大項目')['AbsAmount'].sum().sort_values(ascending=False)
-                for cat, val in cat_summary.items():
-                    prompt += f"- {cat}: ¥{val:,.0f}\n"
-
-            prompt += "\n【月次振り返り】\n"
-            if not df_j_ai.empty:
-                for _, jr in df_j_ai.sort_values('Month').iterrows():
-                    prompt += f"- {jr['Month']}（満足度{jr['Score']}/10）: {jr['Comment']}\n"
-
-            prompt += """
-以下の観点で分析・アドバイスをお願いします：
-1. 支出の全体傾向と改善ポイント
-2. 満足度と支出の関係性
-3. 固定費の最適化余地
-4. 来年に向けた具体的な提案（3つ程度）
-"""
-            st.code(prompt, language="text")
